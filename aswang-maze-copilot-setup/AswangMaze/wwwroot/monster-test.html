@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aswang 3D Monster Test</title>
+  <link href="/css/site.css" rel="stylesheet">
+</head>
+<body class="monster-test-page">
+  <div class="monster-overlay">
+    <span class="eyebrow">Three.js WebGL prototype</span>
+    <h1>THE ASWANG</h1>
+    <p>Drag to inspect the humanoid monster. Scroll to zoom.</p>
+  </div>
+  <canvas id="monster-canvas" aria-label="3D Aswang humanoid monster"></canvas>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module" src="/js/monster3d.js"></script>
+</body>
+</html>

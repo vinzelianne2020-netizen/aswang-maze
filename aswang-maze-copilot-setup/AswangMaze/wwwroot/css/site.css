@@ -1,0 +1,159 @@
+body {
+  min-height: 100vh;
+}
+
+.game-test-page {
+  margin: 0;
+  overflow: hidden;
+  background: #050505;
+}
+
+#game-canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.main-menu {
+  width: min(600px, 100%);
+}
+
+.menu-actions {
+  max-width: 280px;
+}
+
+.eyebrow {
+  color: #dc3545;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.main-menu h1 {
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 22px rgba(220, 53, 69, 0.35);
+}
+
+.monster-test-page {
+  margin: 0;
+  overflow: hidden;
+  background: #020106;
+}
+
+#monster-canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+.monster-overlay {
+  position: fixed;
+  z-index: 2;
+  top: 2rem;
+  left: 2rem;
+  color: #f4edf1;
+  pointer-events: none;
+  text-shadow: 0 2px 12px #000;
+}
+
+.monster-overlay h1 {
+  margin: 0.35rem 0;
+  letter-spacing: 0.16em;
+}
+
+.monster-overlay p {
+  color: #b7aab2;
+}
+
+#game-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  cursor: crosshair;
+}
+
+#fullscreen-button {
+  position: fixed;
+  z-index: 15;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 3px;
+  padding: 10px 16px;
+  background: rgba(6, 6, 10, 0.88);
+  color: #fff;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+:fullscreen #fullscreen-button {
+  display: none;
+}
+
+#game-hud {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  font-family: Consolas, Monaco, monospace;
+}
+
+.hud-panel {
+  position: absolute;
+  padding: 14px 18px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  text-shadow: 0 1px 3px #000;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.hud-left {
+  top: 16px;
+  left: 16px;
+  display: grid;
+  gap: 8px;
+  min-width: 210px;
+}
+
+.exit-status {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 14px 18px;
+  background: rgba(0, 0, 0, 0.72);
+  font-weight: 800;
+}
+
+.exit-status.locked {
+  color: #ff3b50;
+}
+
+.exit-status.unlocked {
+  color: #72d572;
+}
+
+.game-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(100, 0, 0, 0.72);
+  font-family: Consolas, Monaco, monospace;
+  font-size: clamp(2.5rem, 8vw, 6rem);
+  font-weight: 900;
+  text-align: center;
+  text-shadow: 0 4px 24px #000;
+}
+
+.game-overlay[hidden] {
+  display: none;
+}

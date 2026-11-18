@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aswang Maze 3D Game</title>
+  <link href="/css/site.css" rel="stylesheet">
+</head>
+<body class="game-test-page">
+  <canvas id="game-canvas" aria-label="Aswang Maze 3D game"></canvas>
+  <button id="fullscreen-button" type="button">ENTER FULLSCREEN</button>
+  <div id="game-hud" aria-live="polite">
+    <div class="hud-panel hud-left">
+      <div id="keys-counter">Keys 0/0</div>
+      <div id="timer">00:00.00</div>
+      <div id="fps">FPS 0</div>
+    </div>
+    <div id="exit-status" class="exit-status locked">EXIT LOCKED</div>
+  </div>
+  <div id="game-error" class="game-overlay" hidden></div>
+  <div id="caught-overlay" class="game-overlay" hidden>CAUGHT</div>
+  <div id="escaped-overlay" class="game-overlay" hidden>
+    <span>ESCAPED</span>
+  </div>
+  <script type="module" src="/js/game/main.js"></script>
+</body>
+</html>

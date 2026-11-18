@@ -1,0 +1,93 @@
+@host = http://localhost:5000
+@token =
+
+### Create a player
+POST {{host}}/api/players
+Content-Type: application/json
+
+{
+  "username": "MazeTester"
+}
+
+### Invalid username
+POST {{host}}/api/players
+Content-Type: application/json
+
+{
+  "username": "bad name"
+}
+
+### Duplicate username
+POST {{host}}/api/players
+Content-Type: application/json
+
+{
+  "username": "MazeTester"
+}
+
+### List levels
+GET {{host}}/api/levels
+Authorization: Bearer {{token}}
+
+### Get Level 1
+GET {{host}}/api/levels/1
+Authorization: Bearer {{token}}
+
+### Get missing level
+GET {{host}}/api/levels/999
+Authorization: Bearer {{token}}
+
+### Submit valid escape
+POST {{host}}/api/runs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "levelId": 1,
+  "timeMs": 60000,
+  "keysCollected": 2,
+  "escaped": true
+}
+
+### Submit anti-cheat escape with no keys
+POST {{host}}/api/runs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "levelId": 1,
+  "timeMs": 60000,
+  "keysCollected": 1,
+  "escaped": true
+}
+
+### Submit escape below minimum time
+POST {{host}}/api/runs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "levelId": 1,
+  "timeMs": 1,
+  "keysCollected": 2,
+  "escaped": true
+}
+
+### Submit valid failed run
+POST {{host}}/api/runs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "levelId": 1,
+  "timeMs": 15000,
+  "keysCollected": 1,
+  "escaped": false
+}
+
+### Get leaderboard
+GET {{host}}/api/leaderboard/1?top=10
+
+### Get player progress
+GET {{host}}/api/players/me/progress
+Authorization: Bearer {{token}}
