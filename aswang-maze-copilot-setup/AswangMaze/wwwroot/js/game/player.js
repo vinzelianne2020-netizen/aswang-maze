@@ -4,6 +4,7 @@ export function createPlayer(level) {
     y: level.start.y,
     dirX: 1,
     dirY: 0,
+    pitch: 0,
     planeX: 0,
     planeY: 0.66,
     radius: 0.2
@@ -28,19 +29,26 @@ export function rotatePlayer(player, angle) {
     player.planeY * Math.cos(angle);
 }
 
-export function tryMovePlayer(player, map, dx, dy) {
+export function tryMovePlayer(player, map, dx, dy, obstacles = []) {
   const nextX = player.x + dx;
   const nextY = player.y + dy;
 
-  if (map[Math.floor(player.y)]?.[
-    Math.floor(nextX + Math.sign(dx) * player.radius)
-  ] !== 1) {
+  const canOccupy = (x, y) => {
+    for (const offsetX of [-player.radius, player.radius]) {
+      for (const offsetY of [-player.radius, player.radius]) {
+        if (map[Math.floor(y + offsetY)]?.[Math.floor(x + offsetX)] !== 0) return false;
+      }
+    }
+    return obstacles.every((obstacle) =>
+      Math.hypot(x - obstacle.x, y - obstacle.y) >= player.radius + obstacle.radius
+    );
+  };
+
+  if (canOccupy(nextX, player.y)) {
     player.x = nextX;
   }
 
-  if (map[
-    Math.floor(nextY + Math.sign(dy) * player.radius)
-  ]?.[Math.floor(player.x)] !== 1) {
+  if (canOccupy(player.x, nextY)) {
     player.y = nextY;
   }
 }

@@ -8,7 +8,7 @@ export const EnemyState = Object.freeze({
 });
 
 export class Aswang {
-  constructor(map, spawn, levelSpeed, randomOffset = 0, viewDistance = 8) {
+  constructor(map, spawn, levelSpeed, randomOffset = 0, viewDistance = 8, obstacles = []) {
     this.x = spawn.x;
     this.y = spawn.y;
     this.facing = 0;
@@ -26,7 +26,17 @@ export class Aswang {
     this.noisePoint = null;
     this.losCacheTime = 0;
     this.losCacheResult = false;
+    this.stunnedTime = 0;
     this.map = map;
+    this.obstacles = obstacles;
+  }
+
+  stun(seconds) {
+    this.stunnedTime = Math.max(this.stunnedTime, seconds);
+    this.lastSeenX = this.x;
+    this.lastSeenY = this.y;
+    this.path = [];
+    this.setState(EnemyState.SEARCH);
   }
 
   setState(nextState) {
@@ -109,6 +119,15 @@ export class Aswang {
   update(dt, player, elapsedTime) {
     this.stateTime += dt;
     this.graceTime = Math.max(0, this.graceTime - dt);
+    if (player.hidden && this.state === EnemyState.CHASE) {
+      this.setState(EnemyState.SEARCH);
+    }
+
+    if (this.stunnedTime > 0) {
+      this.stunnedTime = Math.max(0, this.stunnedTime - dt);
+      return Math.hypot(this.x - player.x, this.y - player.y) < 0.5 &&
+        this.graceTime === 0 && !player.hidden;
+    }
 
     if (this.graceTime === 0) {
       this.losCacheTime -= dt;
@@ -172,7 +191,7 @@ export class Aswang {
     }
 
     const caught = Math.hypot(this.x - player.x, this.y - player.y) < 0.5;
-    return caught && this.graceTime === 0;
+    return caught && this.graceTime === 0 && !player.hidden;
   }
 
   recalculatePath(player) {
@@ -259,6 +278,9 @@ export class Aswang {
           return false;
       }
     }
+    if (this.obstacles.some((obstacle) =>
+      Math.hypot(x - obstacle.x, y - obstacle.y) < radius + obstacle.radius
+    )) return false;
     return true;
   }
 

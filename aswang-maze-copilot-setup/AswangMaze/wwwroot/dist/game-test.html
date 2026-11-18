@@ -4,11 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Aswang Maze 3D Game</title>
-  <script type="module" crossorigin src="/dist/assets/game-test-B7DhhpcW.js"></script>
-  <link rel="stylesheet" crossorigin href="/dist/assets/game-test-lD5s5nD3.css">
+  <script type="module" crossorigin src="/dist/assets/game-test-B6I57ub3.js"></script>
+  <link rel="stylesheet" crossorigin href="/dist/assets/game-test-DLogYGqb.css">
 </head>
 <body class="game-test-page">
   <canvas id="game-canvas" aria-label="Aswang Maze 3D game"></canvas>
+  <div id="aim-reticle" aria-hidden="true"></div>
   <button id="fullscreen-button" type="button">ENTER FULLSCREEN</button>
   <div id="game-hud" aria-live="polite">
     <div class="hud-panel hud-left">
@@ -16,8 +17,107 @@
       <div id="timer">00:00.00</div>
       <div id="fps">FPS 0</div>
     </div>
+    <div class="objective-wrap">
+      <div id="objective-panel" class="hud-panel hud-objective">Find the keys</div>
+      <div id="level-record" class="level-record">No record yet</div>
+    </div>
     <div id="exit-status" class="exit-status locked">EXIT LOCKED</div>
   </div>
+  <div id="item-belt" aria-label="Inventory">
+    <button class="item-slot" type="button" data-item="gun" aria-label="Gun, slot 1">
+      <span class="item-slot-key">1</span><span class="item-slot-name">GUN</span><span class="item-slot-count">0</span>
+    </button>
+    <button class="item-slot" type="button" data-item="map" aria-label="Map, slot 2">
+      <span class="item-slot-key">2</span><span class="item-slot-name">MAP</span><span class="item-slot-count">0</span>
+    </button>
+    <button class="item-slot" type="button" data-item="flashlight" aria-label="Flashlight, slot 3">
+      <span class="item-slot-key">3</span><span class="item-slot-name">LIGHT</span><span class="item-slot-count">0</span>
+      <span class="item-slot-charge"><span></span></span><span class="item-slot-charge-label">0%</span>
+    </button>
+    <button class="item-slot" type="button" data-item="ammo" aria-label="Bullets, slot 4">
+      <span class="item-slot-key">4</span><span class="item-slot-name">AMMO</span><span class="item-slot-count">0</span>
+    </button>
+    <button class="item-slot" type="button" data-item="battery" aria-label="Batteries, slot 5">
+      <span class="item-slot-key">5</span><span class="item-slot-name">CELL</span><span class="item-slot-count">0</span>
+    </button>
+    <span id="item-hint">1-5 select · E use · F light · Space fire · M map</span>
+  </div>
+  <div id="map-overlay" hidden>
+    <div class="map-panel">
+      <strong>MAZE MAP</strong>
+      <canvas id="map-canvas" aria-label="Map of the maze"></canvas>
+      <span class="map-legend">You · Exit · Key · Aswang · Item</span>
+      <span id="map-close-hint">Press M or Esc to close</span>
+    </div>
+  </div>
+  <div id="game-state-overlay" class="modal-overlay" hidden>
+    <section class="game-dialog" role="dialog" aria-modal="true" aria-labelledby="game-dialog-title">
+      <h1 id="game-dialog-title">PAUSED</h1>
+      <p id="game-dialog-message">Take a breath. The maze is waiting.</p>
+      <div class="dialog-actions">
+        <button id="resume-button" type="button">Resume</button>
+        <button id="retry-button" type="button">Retry checkpoint</button>
+        <button id="restart-button" type="button">Restart level</button>
+        <button id="settings-open-button" type="button">Settings</button>
+        <button id="next-level-button" type="button" hidden>Next level</button>
+        <button id="main-menu-button" type="button">Main menu</button>
+      </div>
+    </section>
+  </div>
+  <div id="tutorial-overlay" class="modal-overlay" hidden>
+    <section class="game-dialog tutorial-dialog" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+      <h1 id="tutorial-title">SURVIVE THE MAZE</h1>
+      <p>Find the keys, gather supplies, and reach the unlocked exit. The Aswang hears noise and chases when it sees you.</p>
+      <ul class="tutorial-controls">
+        <li><b>Move</b><span id="tutorial-controls-move">WASD</span></li>
+        <li><b>Look</b><span>Mouse (left/right/up/down)</span></li>
+        <li><b>Sprint</b><span id="tutorial-controls-sprint">Shift (noisy)</span></li>
+        <li><b>Pick up / use</b><span id="tutorial-controls-interact">E</span></li>
+        <li><b>Hide in cabinets / lockers</b><span id="tutorial-controls-hide">Move close, then E</span></li>
+        <li><b>Light / map</b><span id="tutorial-controls-light-map">F / M</span></li>
+        <li><b>Fire</b><span>Left click / Space</span></li>
+        <li><b>Pause</b><span id="tutorial-controls-pause">Esc</span></li>
+      </ul>
+      <div class="dialog-actions">
+        <button id="tutorial-start-button" type="button">Enter the maze</button>
+        <button id="tutorial-skip-button" type="button">Skip and don’t show again</button>
+      </div>
+    </section>
+  </div>
+  <div id="settings-overlay" class="modal-overlay" hidden>
+    <section class="game-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <h1 id="settings-title">SETTINGS</h1>
+      <label>Mouse sensitivity <input id="setting-sensitivity" type="range" min="0.2" max="3" step="0.1"></label>
+      <label>Brightness <input id="setting-brightness" type="range" min="0.5" max="1.8" step="0.05"></label>
+      <label>Graphics quality <select id="setting-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+      <label>Master volume <input id="setting-master-volume" type="range" min="0" max="1" step="0.05"></label>
+      <label>Effects volume <input id="setting-effects-volume" type="range" min="0" max="1" step="0.05"></label>
+      <label>Ambience volume <input id="setting-ambience-volume" type="range" min="0" max="1" step="0.05"></label>
+      <label class="setting-check"><input id="setting-subtitles" type="checkbox"> Show sound subtitles</label>
+      <label class="setting-check"><input id="setting-reduced-flashing" type="checkbox"> Reduce flashing lights</label>
+      <div class="keybind-list" aria-label="Control bindings">
+        <button type="button" data-bind="forward">Move forward: W</button>
+        <button type="button" data-bind="back">Move backward: S</button>
+        <button type="button" data-bind="left">Move left: A</button>
+        <button type="button" data-bind="right">Move right: D</button>
+        <button type="button" data-bind="sprint">Sprint: Shift</button>
+        <button type="button" data-bind="interact">Interact: E</button>
+        <button type="button" data-bind="flashlight">Flashlight: F</button>
+        <button type="button" data-bind="map">Map: M</button>
+        <button type="button" data-bind="pause">Pause: Escape</button>
+      </div>
+      <div class="dialog-actions">
+        <button id="settings-close-button" type="button">Done</button>
+        <button id="settings-reset-button" type="button">Reset defaults</button>
+      </div>
+    </section>
+  </div>
+  <div id="interaction-prompt" aria-live="polite"></div>
+  <div id="hide-overlay" hidden>
+    <strong>HIDDEN</strong>
+    <span>Stay quiet · Press <b>E</b> to leave</span>
+  </div>
+  <div id="sound-subtitle" aria-live="polite"></div>
   <div id="game-error" class="game-overlay" hidden></div>
   <div id="caught-overlay" class="game-overlay" hidden>CAUGHT</div>
   <div id="escaped-overlay" class="game-overlay" hidden>

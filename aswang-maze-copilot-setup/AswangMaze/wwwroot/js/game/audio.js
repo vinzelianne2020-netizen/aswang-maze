@@ -10,6 +10,8 @@ export class HorrorAudio {
     this.smoothedTension = 0;
     this.heartbeatTimer = 0;
     this.masterVolume = settings.masterVolume ?? 0.8;
+    this.effectsVolume = settings.effectsVolume ?? 0.8;
+    this.ambienceVolume = settings.ambienceVolume ?? 0.55;
   }
 
   unlock() {
@@ -24,8 +26,8 @@ export class HorrorAudio {
       this.heartbeat = this.context.createGain();
 
       this.master.gain.value = this.masterVolume;
-      this.sfx.gain.value = 0.8;
-      this.ambient.gain.value = 0.55;
+      this.sfx.gain.value = this.effectsVolume;
+      this.ambient.gain.value = this.ambienceVolume;
       this.heartbeat.gain.value = 0;
 
       this.sfx.connect(this.master);
@@ -50,6 +52,20 @@ export class HorrorAudio {
         this.context.currentTime,
         0.05
       );
+    }
+  }
+
+  setEffectsVolume(volume) {
+    this.effectsVolume = Math.max(0, Math.min(1, volume));
+    if (this.sfx && this.context) {
+      this.sfx.gain.setTargetAtTime(this.effectsVolume, this.context.currentTime, 0.05);
+    }
+  }
+
+  setAmbienceVolume(volume) {
+    this.ambienceVolume = Math.max(0, Math.min(1, volume));
+    if (this.ambient && this.context) {
+      this.ambient.gain.setTargetAtTime(this.ambienceVolume, this.context.currentTime, 0.05);
     }
   }
 

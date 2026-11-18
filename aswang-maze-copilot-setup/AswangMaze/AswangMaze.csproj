@@ -14,4 +14,8 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.*" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\generated\level-report.json" Link="generated\level-report.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

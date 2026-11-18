@@ -1,15 +1,32 @@
 using AswangMaze.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace AswangMaze.Data;
 
 public static class Seed
 {
+    private sealed record GeneratedPoint(int X, int Y);
+    private sealed record GeneratedLevel(
+        int Order,
+        string Name,
+        int Width,
+        int Height,
+        int Keys,
+        int Enemies,
+        double EnemySpeed,
+        double Fog,
+        string MapData,
+        GeneratedPoint Start,
+        int MinPossibleMs,
+        int StarTime3,
+        int StarTime2);
+
     private const string BaseMapData =
         "111111111111111\n" +
         "150000000000001\n" +
         "101111011111101\n" +
-        "100010010001001\n" +
+        "100010010002001\n" +
         "111010010101101\n" +
         "100010000101001\n" +
         "101011111101101\n" +
@@ -19,25 +36,82 @@ public static class Seed
         "101111010111101\n" +
         "100000000100001\n" +
         "101111111101101\n" +
-        "100020020003001\n" +
+        "100020000003001\n" +
         "111111111111111";
 
     public static async Task RunAsync(GameDb db)
     {
-        var level = ValidateAndCreateLevel();
-        var existing = await db.Levels.SingleOrDefaultAsync(item => item.Order == level.Order);
-
-        if (existing is null)
+        var levels = new List<Level> { ValidateAndCreateLevel() };
+        var reportPath = Path.Combine(AppContext.BaseDirectory, "generated", "level-report.json");
+        if (File.Exists(reportPath))
         {
-            db.Levels.Add(level);
+            var json = await File.ReadAllTextAsync(reportPath);
+            var generated = JsonSerializer.Deserialize<GeneratedLevel[]>(
+                json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (generated is null)
+                throw new InvalidDataException("Generated level report is empty or invalid.");
+            levels.AddRange(generated.Select(ValidateAndCreateGeneratedLevel));
         }
-        else
+
+        foreach (var level in levels)
         {
-            level.Id = existing.Id;
-            db.Entry(existing).CurrentValues.SetValues(level);
+            var existing = await db.Levels.SingleOrDefaultAsync(item => item.Order == level.Order);
+            if (existing is null)
+            {
+                db.Levels.Add(level);
+            }
+            else
+            {
+                level.Id = existing.Id;
+                db.Entry(existing).CurrentValues.SetValues(level);
+            }
         }
 
         await db.SaveChangesAsync();
+    }
+
+    private static Level ValidateAndCreateGeneratedLevel(GeneratedLevel source)
+    {
+        var rows = source.MapData.Split('\n');
+        if (rows.Length != source.Height || rows.Any(row => row.Length != source.Width))
+            throw new InvalidDataException($"Level {source.Order} has invalid map dimensions.");
+        if (rows[0].Any(tile => tile != '1') || rows[^1].Any(tile => tile != '1') ||
+            rows.Any(row => row[0] != '1' || row[^1] != '1'))
+            throw new InvalidDataException($"Level {source.Order} must have solid borders.");
+        if (rows.Any(row => row.Any(tile => !"012345".Contains(tile))))
+            throw new InvalidDataException($"Level {source.Order} contains an unknown map tile.");
+
+        var starts = FindTiles(rows, '5');
+        var exits = FindTiles(rows, '3');
+        var keys = FindTiles(rows, '2');
+        var enemies = FindTiles(rows, '4');
+        if (starts.Count != 1 || exits.Count != 1 ||
+            keys.Count != source.Keys || enemies.Count != source.Enemies ||
+            starts[0] != (source.Start.X, source.Start.Y))
+            throw new InvalidDataException($"Level {source.Order} has invalid entity placements.");
+
+        var reachable = Distances(rows, starts[0]);
+        if (exits.Concat(keys).Concat(enemies).Any(target => !reachable.ContainsKey(target)))
+            throw new InvalidDataException($"Level {source.Order} contains an unreachable entity.");
+
+        return new Level
+        {
+            Name = source.Name,
+            Order = source.Order,
+            Width = source.Width,
+            Height = source.Height,
+            MapData = source.MapData,
+            StartX = source.Start.X,
+            StartY = source.Start.Y,
+            KeysRequired = source.Keys,
+            EnemyCount = source.Enemies,
+            EnemySpeed = source.EnemySpeed,
+            FogDistance = source.Fog,
+            MinPossibleMs = source.MinPossibleMs,
+            StarTime3 = source.StarTime3,
+            StarTime2 = source.StarTime2
+        };
     }
 
     private static Level ValidateAndCreateLevel()
@@ -46,7 +120,7 @@ public static class Seed
         if (baseRows.Length != 15 || baseRows.Any(row => row.Length != 15))
             throw new InvalidOperationException("Level 1 source map must be exactly 15x15.");
 
-        var rows = ExpandMap(BaseMapData, scale: 2);
+        var rows = ExpandMap(BaseMapData, scale: 3);
         var height = rows.Length;
         var width = rows[0].Length;
 

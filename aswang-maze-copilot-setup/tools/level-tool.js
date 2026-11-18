@@ -2,10 +2,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const specs = [
-  { order: 2, name: "Lumang Balay", width: 21, height: 21, keys: 3, enemies: 1, enemySpeed: 1.0, fog: 6.5, seed: 1202 },
-  { order: 3, name: "Sementeryo", width: 25, height: 25, keys: 3, enemies: 1, enemySpeed: 1.1, fog: 5.5, seed: 1303 },
-  { order: 4, name: "Kagubatan", width: 31, height: 31, keys: 4, enemies: 2, enemySpeed: 1.0, fog: 5.0, seed: 1404 },
-  { order: 5, name: "Lungib sa Kapre", width: 31, height: 31, keys: 5, enemies: 2, enemySpeed: 1.15, fog: 4.5, seed: 1505 }
+  { order: 2, name: "Lumang Balay", width: 31, height: 31, keys: 2, enemies: 1, enemySpeed: 1.0, fog: 7.5, seed: 1202 },
+  { order: 3, name: "Sementeryo", width: 35, height: 35, keys: 2, enemies: 1, enemySpeed: 1.1, fog: 6.5, seed: 1303 },
+  { order: 4, name: "Kagubatan", width: 41, height: 41, keys: 2, enemies: 2, enemySpeed: 1.0, fog: 6.0, seed: 1404 },
+  { order: 5, name: "Lungib sa Kapre", width: 45, height: 45, keys: 2, enemies: 2, enemySpeed: 1.15, fog: 5.5, seed: 1505 }
 ];
 
 function mulberry32(seed) {
@@ -189,8 +189,11 @@ function placeEntities(grid, spec, random) {
   const keys = [];
   for (const candidate of keyCandidates) {
     if (keys.length >= spec.keys) break;
+    const region = (candidate.x < width / 2 ? 0 : 1) +
+      (candidate.y < height / 2 ? 0 : 2);
     const separated = keys.every((key) =>
-      Math.abs(key.x - candidate.x) + Math.abs(key.y - candidate.y) >= 8
+      ((key.x < width / 2 ? 0 : 1) + (key.y < height / 2 ? 0 : 2)) !== region &&
+      Math.hypot(key.x - candidate.x, key.y - candidate.y) >= Math.min(width, height) * 0.35
     );
     if (!separated) continue;
     keys.push(candidate);

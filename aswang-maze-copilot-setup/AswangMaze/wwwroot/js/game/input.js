@@ -1,7 +1,10 @@
 export class GameInput {
-  constructor(canvas) {
+  constructor(canvas, controls = {}) {
     this.canvas = canvas;
     this.keys = new Set();
+    this.controls = controls;
+    this.mouseMoveX = 0;
+    this.mouseMoveY = 0;
 
     window.addEventListener("keydown", (event) => {
       this.keys.add(event.key.toLowerCase());
@@ -22,18 +25,25 @@ export class GameInput {
 
     document.addEventListener("mousemove", (event) => {
       if (document.pointerLockElement === canvas) {
-        this.mouseMove = (this.mouseMove || 0) + event.movementX;
+        this.mouseMoveX += event.movementX;
+        this.mouseMoveY += event.movementY;
       }
     });
   }
 
   consumeMouseMove() {
-    const movement = this.mouseMove || 0;
-    this.mouseMove = 0;
+    const movement = { x: this.mouseMoveX, y: this.mouseMoveY };
+    this.mouseMoveX = 0;
+    this.mouseMoveY = 0;
     return movement;
   }
 
   isDown(...names) {
     return names.some((name) => this.keys.has(name));
+  }
+
+  isActionDown(action) {
+    const key = this.controls[action];
+    return Boolean(key && this.keys.has(key));
   }
 }

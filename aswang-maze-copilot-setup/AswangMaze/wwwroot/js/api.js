@@ -44,10 +44,16 @@ export async function createPlayer(username) {
 }
 
 export async function ensureTestPlayer() {
-  if (getToken()) return getToken();
+  const existingToken = getToken();
+  if (existingToken && !existingToken.startsWith("dev-")) return existingToken;
+  if (existingToken) setToken("");
 
-  const username = window.prompt("Dev login - enter a username", "Player1");
-  if (!username) throw new Error("A username is required.");
+  let username = `Player${Date.now().toString(36)}`;
+  try {
+    username = window.prompt("Dev login - enter a username", "Player1") || username;
+  } catch {
+    // Embedded browsers can disable prompt(); use the same default player.
+  }
 
   const player = await createPlayer(username);
   return player.token;
@@ -58,4 +64,16 @@ export async function submitRun(levelId, timeMs, keysCollected, escaped) {
     method: "POST",
     body: JSON.stringify({ levelId, timeMs, keysCollected, escaped })
   });
+}
+
+export async function getLevels() {
+  return apiRequest("/api/levels");
+}
+
+export async function getProgress() {
+  return apiRequest("/api/players/me/progress");
+}
+
+export async function getLeaderboard(levelId, top = 10) {
+  return apiRequest(`/api/leaderboard/${levelId}?top=${top}`);
 }
