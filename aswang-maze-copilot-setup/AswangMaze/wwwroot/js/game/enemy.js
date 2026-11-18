@@ -8,7 +8,7 @@ export const EnemyState = Object.freeze({
 });
 
 export class Aswang {
-  constructor(map, spawn, levelSpeed, randomOffset = 0) {
+  constructor(map, spawn, levelSpeed, randomOffset = 0, viewDistance = 8) {
     this.x = spawn.x;
     this.y = spawn.y;
     this.facing = 0;
@@ -18,7 +18,7 @@ export class Aswang {
     this.path = [];
     this.pathTimer = randomOffset;
     this.pathInterval = 0.3;
-    this.viewDistance = 8;
+    this.viewDistance = viewDistance;
     this.lastSeenX = this.x;
     this.lastSeenY = this.y;
     this.searchTime = 0;
@@ -65,13 +65,31 @@ export class Aswang {
     while (angleDifference < -Math.PI) angleDifference += Math.PI * 2;
     if (Math.abs(angleDifference) > Math.PI * 0.39) return false;
 
-    const rayCount = Math.ceil(distance * 4);
-    for (let index = 1; index < rayCount; index++) {
-      const fraction = index / rayCount;
-      const x = Math.floor(this.x + dx * fraction);
-      const y = Math.floor(this.y + dy * fraction);
-      if (this.map[y]?.[x] === 1) return false;
+    let mapX = Math.floor(this.x);
+    let mapY = Math.floor(this.y);
+    const targetX = Math.floor(player.x);
+    const targetY = Math.floor(player.y);
+    const stepX = Math.sign(dx);
+    const stepY = Math.sign(dy);
+    const deltaX = stepX === 0 ? Infinity : Math.abs(1 / dx);
+    const deltaY = stepY === 0 ? Infinity : Math.abs(1 / dy);
+    let sideX =
+      (stepX < 0 ? this.x - mapX : mapX + 1 - this.x) * deltaX;
+    let sideY =
+      (stepY < 0 ? this.y - mapY : mapY + 1 - this.y) * deltaY;
+
+    while (mapX !== targetX || mapY !== targetY) {
+      if (sideX < sideY) {
+        sideX += deltaX;
+        mapX += stepX;
+      } else {
+        sideY += deltaY;
+        mapY += stepY;
+      }
+
+      if (this.map[mapY]?.[mapX] !== 0) return false;
     }
+
     return true;
   }
 
@@ -120,7 +138,12 @@ export class Aswang {
       this.state === EnemyState.CHASE ? 1.15 :
       0.8;
 
-    this.moveAlongPath(speedMultiplier * this.baseSpeed, dt);
+    const speed = speedMultiplier * this.baseSpeed;
+    if (this.state === EnemyState.CHASE && this.losCacheResult) {
+      this.moveToward(player.x, player.y, speed, dt);
+    } else {
+      this.moveAlongPath(speed, dt);
+    }
 
     if (this.state === EnemyState.PATROL && this.path.length === 0 && this.stateTime > 1) {
       const waypoint = this.choosePatrolWaypoint();
@@ -203,7 +226,7 @@ export class Aswang {
       const movement = Math.min(speed * dt, distance);
       const nextX = this.x + dx * movement;
       const nextY = this.y + dy * movement;
-      if (this.map[Math.floor(nextY)][Math.floor(nextX)] !== 1) {
+      if (this.canOccupy(nextX, nextY)) {
         this.x = nextX;
         this.y = nextY;
       } else {
@@ -211,6 +234,32 @@ export class Aswang {
       }
       break;
     }
+  }
+
+  moveToward(targetX, targetY, speed, dt) {
+    const dx = targetX - this.x;
+    const dy = targetY - this.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 0.05) return;
+
+    const movement = Math.min(speed * dt, distance);
+    const moveX = (dx / distance) * movement;
+    const moveY = (dy / distance) * movement;
+    this.facing = Math.atan2(dy, dx);
+
+    if (this.canOccupy(this.x + moveX, this.y)) this.x += moveX;
+    if (this.canOccupy(this.x, this.y + moveY)) this.y += moveY;
+  }
+
+  canOccupy(x, y) {
+    const radius = 0.18;
+    for (const offsetX of [-radius, radius]) {
+      for (const offsetY of [-radius, radius]) {
+        if (this.map[Math.floor(y + offsetY)]?.[Math.floor(x + offsetX)] !== 0)
+          return false;
+      }
+    }
+    return true;
   }
 
   debugText() {

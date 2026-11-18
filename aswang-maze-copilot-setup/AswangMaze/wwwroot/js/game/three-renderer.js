@@ -64,6 +64,8 @@ export class ThreeRenderer {
 
   buildMaze(level) {
     if (this.mazeGroup) this.scene.remove(this.mazeGroup);
+    const fogDistance = level.fogDistance || 8;
+    this.scene.fog.density = 0.075 * Math.pow(8 / fogDistance, 2);
     this.mazeGroup = new THREE.Group();
     this.scene.add(this.mazeGroup);
 

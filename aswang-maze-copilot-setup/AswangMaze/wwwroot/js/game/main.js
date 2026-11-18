@@ -38,7 +38,13 @@ function startGame(level) {
   const enemies = level.spawns
     .slice(0, level.enemyCount)
     .map((spawn, index) =>
-      new Aswang(level.map, spawn, level.enemySpeed, index * 0.11)
+      new Aswang(
+        level.map,
+        spawn,
+        level.enemySpeed,
+        index * 0.11,
+        level.fogDistance
+      )
     );
 
   let previousTime = performance.now();

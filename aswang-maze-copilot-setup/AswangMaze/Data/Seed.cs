@@ -5,7 +5,7 @@ namespace AswangMaze.Data;
 
 public static class Seed
 {
-    private const string MapData =
+    private const string BaseMapData =
         "111111111111111\n" +
         "150000000000001\n" +
         "101111011111101\n" +
@@ -42,12 +42,16 @@ public static class Seed
 
     private static Level ValidateAndCreateLevel()
     {
-        var rows = MapData.Split('\n');
-        const int width = 15;
-        const int height = 15;
+        var baseRows = BaseMapData.Split('\n');
+        if (baseRows.Length != 15 || baseRows.Any(row => row.Length != 15))
+            throw new InvalidOperationException("Level 1 source map must be exactly 15x15.");
 
-        if (rows.Length != height || rows.Any(row => row.Length != width))
-            throw new InvalidOperationException("Level 1 map must be exactly 15x15.");
+        var rows = ExpandMap(BaseMapData, scale: 2);
+        var height = rows.Length;
+        var width = rows[0].Length;
+
+        if (rows.Any(row => row.Length != width))
+            throw new InvalidOperationException("Level 1 map rows must have equal width.");
 
         for (var x = 0; x < width; x++)
         {
@@ -91,17 +95,46 @@ public static class Seed
             Order = 1,
             Width = width,
             Height = height,
-            MapData = MapData,
+            MapData = string.Join('\n', rows),
             StartX = starts[0].X,
             StartY = starts[0].Y,
             KeysRequired = 2,
             EnemyCount = 1,
-            EnemySpeed = 0.9,
-            FogDistance = 8,
+            EnemySpeed = 1.25,
+            FogDistance = 16,
             MinPossibleMs = minPossibleMs,
             StarTime3 = starTime3,
             StarTime2 = starTime2
         };
+    }
+
+    private static string[] ExpandMap(string mapData, int scale)
+    {
+        var sourceRows = mapData.Split('\n');
+        var expandedRows = new string[sourceRows.Length * scale];
+
+        for (var y = 0; y < sourceRows.Length; y++)
+        {
+            for (var rowOffset = 0; rowOffset < scale; rowOffset++)
+            {
+                var expandedRow = new char[sourceRows[y].Length * scale];
+
+                for (var x = 0; x < sourceRows[y].Length; x++)
+                {
+                    var tile = sourceRows[y][x];
+                    var expandedTile = tile == '1' ? '1' : '0';
+                    for (var offset = 0; offset < scale; offset++)
+                        expandedRow[x * scale + offset] = expandedTile;
+
+                    if (rowOffset == 0 && tile != '0' && tile != '1')
+                        expandedRow[x * scale] = tile;
+                }
+
+                expandedRows[y * scale + rowOffset] = new string(expandedRow);
+            }
+        }
+
+        return expandedRows;
     }
 
     private static List<(int X, int Y)> FindTiles(string[] rows, char tile)
