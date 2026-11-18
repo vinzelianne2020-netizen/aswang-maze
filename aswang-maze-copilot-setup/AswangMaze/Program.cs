@@ -37,7 +37,17 @@ staticFileProvider.Mappings[".gltf"] = "model/gltf+json";
 staticFileProvider.Mappings[".bin"] = "application/octet-stream";
 app.UseStaticFiles(new StaticFileOptions
 {
-    ContentTypeProvider = staticFileProvider
+    ContentTypeProvider = staticFileProvider,
+    OnPrepareResponse = context =>
+    {
+        var extension = Path.GetExtension(context.File.Name);
+        if (extension.Equals(".html", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".js", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".css", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Context.Response.Headers.CacheControl = "no-cache";
+        }
+    }
 });
 app.UseRateLimiter();
 

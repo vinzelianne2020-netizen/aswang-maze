@@ -13,7 +13,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    chunkSizeWarningLimit: 600,
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       input: resolve(import.meta.dirname, "AswangMaze/wwwroot/game-test.html")
     }

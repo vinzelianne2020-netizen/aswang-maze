@@ -55,7 +55,7 @@ $(function () {
     if (document.querySelector("#game-canvas")) {
       emit("game:start", { levelId });
     } else {
-      window.location.href = `/game-test.html?level=${levelId}`;
+      window.location.href = `/dist/game-test.html?level=${levelId}`;
     }
   });
 

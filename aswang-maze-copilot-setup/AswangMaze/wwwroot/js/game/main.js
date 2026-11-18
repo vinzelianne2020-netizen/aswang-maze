@@ -11,7 +11,10 @@ const canvas = document.querySelector("#game-canvas");
 async function initialize() {
   try {
     await ensureTestPlayer();
-    const level = await loadLevel(1);
+    const levelId = Number(
+      new URLSearchParams(window.location.search).get("level") || 1
+    );
+    const level = await loadLevel(levelId);
     startGame(level);
   } catch (error) {
     showError(error.message);
