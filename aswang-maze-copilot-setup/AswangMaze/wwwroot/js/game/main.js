@@ -20,6 +20,9 @@ const ITEM_PICKUP_TYPES = [
   "battery",
   "ammo"
 ];
+const MAGAZINE_CAPACITY = 7;
+const MAX_RESERVE_AMMO = 42;
+const RELOAD_DURATION = 1.65;
 const exploredCells = new Set();
 
 async function initialize() {
@@ -75,7 +78,7 @@ function createPickups(level) {
       type,
       x: cell.x + 0.5,
       y: cell.y + 0.5,
-      amount: type === "ammo" ? 6 : 1,
+      amount: type === "ammo" ? 14 : 1,
       collected: false
     });
   }
@@ -86,8 +89,13 @@ function updateInventoryHud(inventory, selectedItem) {
   for (const slot of document.querySelectorAll(".item-slot")) {
     const item = slot.dataset.item;
     slot.classList.toggle("selected", item === selectedItem);
-    slot.querySelector(".item-slot-count").textContent =
-      item === "flashlight" ? String(inventory[item] ? 1 : 0) : String(inventory[item]);
+    slot.querySelector(".item-slot-count").textContent = item === "flashlight"
+      ? String(inventory[item] ? 1 : 0)
+      : item === "ammo"
+        ? inventory.gun
+          ? `${inventory.magazineAmmo}/${MAGAZINE_CAPACITY} · ${inventory.ammo}`
+          : String(inventory.ammo)
+        : String(inventory[item]);
     if (item === "flashlight") {
       const charge = slot.querySelector(".item-slot-charge span");
       charge.style.width = `${inventory.flashlightCharge}%`;
@@ -190,9 +198,11 @@ function startGame(level, progress = []) {
     map: 0,
     flashlight: 0,
     ammo: 0,
+    magazineAmmo: 0,
     battery: 0,
     flashlightCharge: 0,
-    flashlightOn: false
+    flashlightOn: false,
+    reloading: false
   };
   let selectedItem = "gun";
   renderer.setEquippedItem(selectedItem, inventory);
@@ -217,6 +227,8 @@ function startGame(level, progress = []) {
   let fpsFrames = 0;
   let fpsElapsed = 0;
   let footstepTimer = 0;
+  let reloadTimer = 0;
+  const enemyAudioStates = new Map();
   let grabbed = false;
   let escaped = false;
   let runSubmitted = false;
@@ -232,21 +244,26 @@ function startGame(level, progress = []) {
   recordElement.textContent = levelProgress?.bestTimeMs
     ? `Best ${formatTime(levelProgress.bestTimeMs / 1000)} · ${levelProgress.stars}★`
     : "No record yet";
-  const controlLabel = (action) => settings.controls[action].toUpperCase();
+  const controlLabel = (action) =>
+    settings.controls[action] === " " ? "SPACE" : settings.controls[action].toUpperCase();
   const controlsHint = () =>
-    `1-5 select · ${controlLabel("interact")} interact/use · ${controlLabel("flashlight")} light · Space fire · ${controlLabel("map")} map`;
+    `1-5 select · ${controlLabel("interact")} interact · ${controlLabel("jump")} jump · Click fire · ${controlLabel("reload")} reload · ${controlLabel("flashlight")} light · ${controlLabel("map")} map`;
   function updateControlLabels() {
     document.querySelector("#item-hint").textContent = controlsHint();
     document.querySelector("#tutorial-controls-move").textContent =
       `${controlLabel("forward")}/${controlLabel("left")}/${controlLabel("back")}/${controlLabel("right")}`;
     document.querySelector("#tutorial-controls-sprint").textContent =
       `${controlLabel("sprint")} (noisy)`;
+    document.querySelector("#tutorial-controls-jump").textContent =
+      controlLabel("jump");
     document.querySelector("#tutorial-controls-interact").textContent =
       `${controlLabel("interact")}`;
     document.querySelector("#tutorial-controls-hide").textContent =
       `Move close, then ${controlLabel("interact")}`;
     document.querySelector("#tutorial-controls-light-map").textContent =
       `${controlLabel("flashlight")} / ${controlLabel("map")}`;
+    document.querySelector("#tutorial-controls-reload").textContent =
+      controlLabel("reload");
     document.querySelector("#tutorial-controls-pause").textContent =
       `${controlLabel("pause")}`;
     document.querySelector("#map-close-hint").textContent =
@@ -264,7 +281,7 @@ function startGame(level, progress = []) {
   if (keysCollected >= level.keysRequired) {
     collisionMap[exitCellY][exitCellX] = 0;
   }
-  renderer.syncExit(keysCollected);
+  renderer.syncExit(keysCollected, level.keysRequired);
   if (!localStorage.getItem(tutorialSeenKey)) {
     gameState = "tutorial";
     document.querySelector("#tutorial-overlay").hidden = false;
@@ -303,7 +320,8 @@ function startGame(level, progress = []) {
       elapsedTime,
       keys: level.keys.map((key) => key.collected),
       pickups: pickups.map((pickup) => pickup.collected),
-      inventory: { ...inventory }
+      inventory: { ...inventory },
+      flashlightChargeInitialized: true
     };
     try {
       localStorage.setItem(checkpointKey(), JSON.stringify(snapshot));
@@ -339,10 +357,29 @@ function startGame(level, progress = []) {
         const value = saved.inventory?.[item];
         inventory[item] = Number.isFinite(value) ? Math.max(0, value) : 0;
       }
+      const savedMagazine = saved.inventory?.magazineAmmo;
+      if (Number.isFinite(savedMagazine)) {
+        inventory.magazineAmmo = Math.max(0, Math.min(MAGAZINE_CAPACITY, savedMagazine));
+        inventory.ammo = Math.min(MAX_RESERVE_AMMO, inventory.ammo);
+      } else {
+        inventory.magazineAmmo = inventory.gun > 0
+          ? Math.min(MAGAZINE_CAPACITY, inventory.ammo)
+          : 0;
+        inventory.ammo = Math.min(
+          MAX_RESERVE_AMMO,
+          Math.max(0, inventory.ammo - inventory.magazineAmmo)
+        );
+      }
       inventory.flashlightCharge = Number.isFinite(saved.inventory?.flashlightCharge)
         ? Math.max(0, Math.min(100, saved.inventory.flashlightCharge))
         : 0;
+      if (inventory.flashlight > 0 && !saved.flashlightChargeInitialized) {
+        inventory.flashlightCharge = 100;
+      }
       inventory.flashlightOn = false;
+      if (inventory.flashlightCharge <= 0) {
+        replaceEmptyFlashlightBattery();
+      }
       return true;
     } catch (error) {
       console.warn("Could not restore the saved game checkpoint.", error);
@@ -386,7 +423,8 @@ function startGame(level, progress = []) {
     }
     for (const button of document.querySelectorAll("[data-bind]")) {
       const action = button.dataset.bind;
-      button.textContent = `${action}: ${settings.controls[action]}`;
+      const formatKey = (key) => key === " " ? "Space" : key.toUpperCase();
+      button.textContent = `${action}: ${formatKey(settings.controls[action])}`;
       button.addEventListener("click", () => {
         button.textContent = `${action}: press a key...`;
         const capture = (event) => {
@@ -394,7 +432,7 @@ function startGame(level, progress = []) {
           event.stopImmediatePropagation();
           settings.controls[action] = event.key.toLowerCase();
           input.controls[action] = settings.controls[action];
-          button.textContent = `${action}: ${settings.controls[action]}`;
+          button.textContent = `${action}: ${formatKey(settings.controls[action])}`;
           saveSettings(settings);
           updateControlLabels();
           window.removeEventListener("keydown", capture, true);
@@ -419,7 +457,7 @@ function startGame(level, progress = []) {
     document.querySelector("#retry-button").hidden = nextState !== "caught";
     document.querySelector("#restart-button").hidden = !["caught", "escaped"].includes(nextState);
     document.querySelector("#next-level-button").hidden = nextState !== "escaped";
-    document.querySelector("#main-menu-button").hidden = nextState === "paused";
+    document.querySelector("#main-menu-button").hidden = false;
     if (nextState !== "playing") document.exitPointerLock?.();
   }
 
@@ -443,7 +481,7 @@ function startGame(level, progress = []) {
     } else {
       collisionMap[exitCellY][exitCellX] = 1;
     }
-    renderer.syncExit(keysCollected);
+    renderer.syncExit(keysCollected, level.keysRequired);
     document.querySelector("#hide-overlay").hidden = true;
     renderer.setPlayerHidden(false);
     for (const enemy of enemies) {
@@ -542,15 +580,32 @@ function startGame(level, progress = []) {
       showItemHint("Find a flashlight first");
       return;
     }
+    const replaced = inventory.flashlightCharge <= 0 &&
+      replaceEmptyFlashlightBattery();
     if (inventory.flashlightCharge <= 0) {
       inventory.flashlightOn = false;
       renderer.setFlashlightEnabled(false);
-      showItemHint("No battery power — use a battery cell");
+      showItemHint("Flashlight empty — no spare cells");
       return;
     }
     inventory.flashlightOn = !inventory.flashlightOn;
     renderer.setFlashlightEnabled(inventory.flashlightOn);
-    showItemHint(inventory.flashlightOn ? "Flashlight on" : "Flashlight off");
+    showItemHint(inventory.flashlightOn
+      ? replaced ? "Battery replaced · flashlight on" : "Flashlight on"
+      : "Flashlight off");
+  }
+
+  function replaceEmptyFlashlightBattery() {
+    if (!inventory.flashlight || inventory.flashlightCharge > 0 || inventory.battery <= 0) {
+      return false;
+    }
+    inventory.battery--;
+    inventory.flashlightCharge = 100;
+    horrorAudio.playBatterySwap();
+    showItemHint("Flashlight battery replaced automatically");
+    updateInventoryHud(inventory, selectedItem);
+    saveCheckpoint();
+    return true;
   }
 
   function getNearbyInteraction() {
@@ -561,7 +616,7 @@ function startGame(level, progress = []) {
     let nearest = null;
     let nearestDistance = 1.15;
     for (const pickup of pickups) {
-      if (pickup.collected) continue;
+      if (pickup.collected || pickup.type === "battery") continue;
       const distance = Math.hypot(player.x - pickup.x, player.y - pickup.y);
       if (distance < nearestDistance) {
         nearest = { type: "pickup", target: pickup, distance };
@@ -636,7 +691,7 @@ function startGame(level, progress = []) {
       prompt.textContent = `${controlLabel("interact")} · Collect key`;
     } else {
       prompt.textContent = keysCollected >= level.keysRequired
-        ? `${controlLabel("interact")} · Escape`
+        ? `Unlocked · Walk through to escape`
         : `Exit locked · Find ${level.keysRequired - keysCollected} more key(s)`;
     }
   }
@@ -670,11 +725,22 @@ function startGame(level, progress = []) {
       const pickup = nearby.target;
       pickup.collected = true;
       if (pickup.type === "ammo") {
-        inventory.ammo += pickup.amount;
-        showItemHint(`Picked up ${pickup.amount} bullets`);
+        const addedAmmo = Math.min(pickup.amount, MAX_RESERVE_AMMO - inventory.ammo);
+        inventory.ammo += addedAmmo;
+        showItemHint(addedAmmo ? `Picked up ${addedAmmo} reserve bullets` : "Reserve ammo full");
+      } else if (pickup.type === "flashlight") {
+        inventory.flashlight = 1;
+        inventory.flashlightCharge = 100;
+        showItemHint("Picked up flashlight · battery full");
+      } else if (pickup.type === "gun") {
+        if (!inventory.gun) inventory.magazineAmmo = MAGAZINE_CAPACITY;
+        inventory.gun = 1;
+        showItemHint("Picked up gun · 7-round magazine loaded");
       } else {
         inventory[pickup.type]++;
-        showItemHint(`Picked up: ${pickup.type}`);
+        showItemHint(pickup.type === "battery"
+          ? "Battery cell added · automatic flashlight replacement"
+          : `Picked up: ${pickup.type}`);
       }
       horrorAudio.playTone(520, 0.18, 0.25);
       saveCheckpoint();
@@ -684,7 +750,7 @@ function startGame(level, progress = []) {
       showItemHint(`Key collected · ${keysCollected}/${level.keysRequired}`);
       horrorAudio.playTone(660, 0.2, 0.3);
       for (const enemy of enemies) enemy.emitNoise(player.x, player.y, 5);
-      renderer.syncExit(keysCollected);
+      renderer.syncExit(keysCollected, level.keysRequired);
       if (keysCollected >= level.keysRequired) {
         collisionMap[exitCellY][exitCellX] = 0;
       }
@@ -707,12 +773,18 @@ function startGame(level, progress = []) {
       showItemHint("Find the gun first");
       return;
     }
-    if (inventory.ammo <= 0) {
-      showItemHint("Out of bullets");
+    if (selectedItem !== "gun") {
+      selectedItem = "gun";
+      renderer.setEquippedItem(selectedItem, inventory);
+    }
+    if (inventory.reloading) return;
+    if (inventory.magazineAmmo <= 0) {
+      if (inventory.ammo > 0) reloadGun();
+      else showItemHint("Magazine empty · no reserve bullets");
       return;
     }
 
-    inventory.ammo--;
+    inventory.magazineAmmo--;
     const maxDistance = 9;
     let target = null;
     let targetDistance = maxDistance;
@@ -740,8 +812,31 @@ function startGame(level, progress = []) {
       showItemHint("Shot fired");
     }
     for (const enemy of enemies) enemy.emitNoise(player.x, player.y, 20);
-    renderer.fireViewModel();
-    horrorAudio.playTone(125, 0.12, 0.55);
+    renderer.fireViewModel(target
+      ? { x: target.x, y: 0.9, z: target.y, surface: "flesh" }
+      : null);
+    horrorAudio.playGunshot();
+    if (inventory.magazineAmmo === 0 && inventory.ammo > 0) reloadGun();
+    saveCheckpoint();
+  }
+
+  function reloadGun() {
+    if (gameState !== "playing" || mapOpen || !inventory.gun || inventory.reloading) return;
+    if (inventory.magazineAmmo >= MAGAZINE_CAPACITY) {
+      showItemHint("Magazine is full");
+      return;
+    }
+    if (inventory.ammo <= 0) {
+      showItemHint("No reserve bullets");
+      return;
+    }
+    selectedItem = "gun";
+    renderer.setEquippedItem(selectedItem, inventory);
+    inventory.reloading = true;
+    reloadTimer = RELOAD_DURATION;
+    horrorAudio.playReload();
+    showItemHint("Reloading…");
+    saveCheckpoint();
   }
 
   function hasClearShot(targetX, targetY) {
@@ -765,13 +860,9 @@ function startGame(level, progress = []) {
       toggleFlashlight();
     } else if (selectedItem === "battery") {
       if (!inventory.battery) {
-        showItemHint("No battery cells");
-      } else if (inventory.flashlightCharge >= 100) {
-        showItemHint("Flashlight battery is full");
+        showItemHint("No spare battery cells");
       } else {
-        inventory.battery--;
-        inventory.flashlightCharge = Math.min(100, inventory.flashlightCharge + 40);
-        showItemHint(`Flashlight battery: ${Math.floor(inventory.flashlightCharge)}%`);
+        showItemHint("Battery cells replace the flashlight automatically");
       }
     } else {
       showItemHint("Bullets load automatically when collected");
@@ -802,15 +893,20 @@ function startGame(level, progress = []) {
     } else if (key === settings.controls.interact) {
       event.preventDefault();
       interact();
+    } else if (key === settings.controls.reload) {
+      event.preventDefault();
+      reloadGun();
     } else if (key === settings.controls.flashlight) {
       toggleFlashlight();
       updateInventoryHud(inventory, selectedItem);
     } else if (key === settings.controls.map) {
       toggleMap();
-    } else if (key === " " && document.pointerLockElement === canvas) {
+    } else if (key === settings.controls.jump) {
       event.preventDefault();
-      fireGun();
-      updateInventoryHud(inventory, selectedItem);
+      if (gameState === "playing" && !mapOpen && !player.hidden &&
+          player.jumpHeight === 0 && !grabbed && !escaped) {
+        player.jumpVelocity = 5.2;
+      }
     }
   });
 
@@ -833,6 +929,21 @@ function startGame(level, progress = []) {
     previousTime = currentTime;
     const active = gameState === "playing" && !mapOpen;
     if (active) elapsedTime += dt;
+    if (active && inventory.reloading) {
+      reloadTimer -= dt;
+      if (reloadTimer <= 0) {
+        const loaded = Math.min(
+          MAGAZINE_CAPACITY - inventory.magazineAmmo,
+          inventory.ammo
+        );
+        inventory.magazineAmmo += loaded;
+        inventory.ammo -= loaded;
+        inventory.reloading = false;
+        renderer.finishReload();
+        showItemHint(`Reloaded · ${inventory.magazineAmmo}/${MAGAZINE_CAPACITY}`);
+        saveCheckpoint();
+      }
+    }
 
     fpsFrames++;
     fpsElapsed += dt;
@@ -843,6 +954,12 @@ function startGame(level, progress = []) {
     }
 
     const mouseMove = input.consumeMouseMove();
+    if (active && !player.hidden && !grabbed && !escaped &&
+        (player.jumpHeight > 0 || player.jumpVelocity > 0)) {
+      player.jumpHeight = Math.max(0, player.jumpHeight + player.jumpVelocity * dt);
+      player.jumpVelocity -= 14 * dt;
+      if (player.jumpHeight === 0) player.jumpVelocity = 0;
+    }
     if (active && mouseMove.x !== 0) {
       rotatePlayer(player, mouseMove.x * 0.0022 * settings.mouseSensitivity);
     }
@@ -872,7 +989,7 @@ function startGame(level, progress = []) {
           strafe /= length;
 
           sprinting = input.isActionDown("sprint");
-          const speed = sprinting ? 2.8 : 1.6;
+          const speed = sprinting ? 3.7 : 2.1;
           const moveX =
             (player.dirX * forward + player.dirY * -strafe) * speed * dt;
           const moveY =
@@ -899,24 +1016,58 @@ function startGame(level, progress = []) {
 
         revealMap();
         updateInteractionPrompt();
-
-        if (inventory.flashlightOn) {
-          inventory.flashlightCharge = Math.max(0, inventory.flashlightCharge - dt * 1.5);
-          if (inventory.flashlightCharge === 0) {
-            inventory.flashlightOn = false;
-            renderer.setFlashlightEnabled(false);
-            showItemHint("Flashlight battery empty");
-          }
-        }
       } else {
         updateInteractionPrompt();
+      }
+
+      if (inventory.flashlightOn) {
+        inventory.flashlightCharge = Math.max(0, inventory.flashlightCharge - dt * 1.5);
+      }
+      if (inventory.flashlight && inventory.flashlightCharge <= 0) {
+        if (!replaceEmptyFlashlightBattery() && inventory.flashlightOn) {
+          inventory.flashlightOn = false;
+          renderer.setFlashlightEnabled(false);
+          horrorAudio.playFlashlightPowerDown();
+          showItemHint("Flashlight empty · no spare cells");
+          saveCheckpoint();
+        }
+      }
+
+      const autoBattery = pickups.find((pickup) =>
+        !pickup.collected &&
+        pickup.type === "battery" &&
+        Math.hypot(player.x - pickup.x, player.y - pickup.y) < 0.68
+      );
+      if (autoBattery) {
+        autoBattery.collected = true;
+        inventory.battery++;
+        if (!replaceEmptyFlashlightBattery()) {
+          showItemHint("Battery cell collected · automatic replacement enabled");
+        }
+        horrorAudio.playTone(520, 0.18, 0.22);
+        saveCheckpoint();
       }
 
       for (const enemy of enemies) {
         if (enemy.update(dt, player, elapsedTime)) {
           grabbed = true;
           horrorAudio.playTone(48, 0.8, 0.8);
+          horrorAudio.playEnemyCue(enemy.x, enemy.y, "scream");
         }
+        const previousState = enemyAudioStates.get(enemy);
+        if (previousState !== enemy.state) {
+          if (enemy.state === "CHASE") {
+            horrorAudio.playEnemyCue(enemy.x, enemy.y, "scream");
+          } else if (enemy.state === "INVESTIGATE" && previousState !== undefined) {
+            horrorAudio.playEnemyCue(enemy.x, enemy.y, "whisper");
+          }
+          enemyAudioStates.set(enemy, enemy.state);
+        }
+      }
+      if (keysCollected >= level.keysRequired &&
+          renderer.exitDoorAngle >= Math.PI / 2 - 0.08 &&
+          Math.hypot(player.x - level.exit.x, player.y - level.exit.y) < 0.9) {
+        escaped = true;
       }
     } else {
       document.querySelector("#interaction-prompt").hidden = true;
@@ -975,7 +1126,13 @@ function startGame(level, progress = []) {
       nearestDistance === Infinity
         ? 0
         : Math.max(0, Math.min(1, 1 - nearestDistance / 12));
-    horrorAudio.update(active ? dt : 0, active ? Math.max(distanceTension, chaseTension) : 0);
+    horrorAudio.update(
+      active ? dt : 0,
+      active ? Math.max(distanceTension, chaseTension) : 0,
+      player,
+      enemies,
+      active
+    );
     const subtitle = document.querySelector("#sound-subtitle");
     if (settings.subtitles && active && nearestDistance < 8) {
       subtitle.textContent = chaseTension ? "The Aswang is chasing you" : "You hear something nearby";
@@ -991,11 +1148,20 @@ function startGame(level, progress = []) {
     renderer.update(dt, enemies, {
       intensity: active && !grabbed && !escaped && !player.hidden ? movementIntensity : 0,
       sprinting,
-      strafe
+      strafe,
+      flashlightOn: inventory.flashlightOn,
+      flashlightCharge: inventory.flashlightCharge,
+      reloading: inventory.reloading,
+      reloadProgress: inventory.reloading
+        ? 1 - reloadTimer / RELOAD_DURATION
+        : 0
     });
     renderer.render();
     if (mapOpen) drawMap(level, player, enemies, pickups);
     updateInventoryHud(inventory, selectedItem);
+    document.querySelector("#ammo-counter").textContent = inventory.gun
+      ? `MAG ${inventory.magazineAmmo}/${MAGAZINE_CAPACITY} · RES ${inventory.ammo}`
+      : "AMMO —";
 
     updateHud(
       level,

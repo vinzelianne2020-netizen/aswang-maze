@@ -8,12 +8,14 @@
 </head>
 <body class="game-test-page">
   <canvas id="game-canvas" aria-label="Aswang Maze 3D game"></canvas>
+  <div id="horror-vignette" aria-hidden="true"></div>
   <div id="aim-reticle" aria-hidden="true"></div>
   <button id="fullscreen-button" type="button">ENTER FULLSCREEN</button>
   <div id="game-hud" aria-live="polite">
     <div class="hud-panel hud-left">
       <div id="keys-counter">Keys 0/0</div>
       <div id="timer">00:00.00</div>
+      <div id="ammo-counter">AMMO —</div>
       <div id="fps">FPS 0</div>
     </div>
     <div class="objective-wrap">
@@ -39,7 +41,7 @@
     <button class="item-slot" type="button" data-item="battery" aria-label="Batteries, slot 5">
       <span class="item-slot-key">5</span><span class="item-slot-name">CELL</span><span class="item-slot-count">0</span>
     </button>
-    <span id="item-hint">1-5 select · E use · F light · Space fire · M map</span>
+    <span id="item-hint">1-5 select · E interact · Space jump · Click fire · R reload · F light · M map</span>
   </div>
   <div id="map-overlay" hidden>
     <div class="map-panel">
@@ -71,10 +73,12 @@
         <li><b>Move</b><span id="tutorial-controls-move">WASD</span></li>
         <li><b>Look</b><span>Mouse (left/right/up/down)</span></li>
         <li><b>Sprint</b><span id="tutorial-controls-sprint">Shift (noisy)</span></li>
+        <li><b>Jump</b><span id="tutorial-controls-jump">Space</span></li>
         <li><b>Pick up / use</b><span id="tutorial-controls-interact">E</span></li>
         <li><b>Hide in cabinets / lockers</b><span id="tutorial-controls-hide">Move close, then E</span></li>
         <li><b>Light / map</b><span id="tutorial-controls-light-map">F / M</span></li>
-        <li><b>Fire</b><span>Left click / Space</span></li>
+        <li><b>Fire</b><span>Left click</span></li>
+        <li><b>Reload</b><span id="tutorial-controls-reload">R</span></li>
         <li><b>Pause</b><span id="tutorial-controls-pause">Esc</span></li>
       </ul>
       <div class="dialog-actions">
@@ -100,7 +104,9 @@
         <button type="button" data-bind="left">Move left: A</button>
         <button type="button" data-bind="right">Move right: D</button>
         <button type="button" data-bind="sprint">Sprint: Shift</button>
+        <button type="button" data-bind="jump">Jump: Space</button>
         <button type="button" data-bind="interact">Interact: E</button>
+        <button type="button" data-bind="reload">Reload: R</button>
         <button type="button" data-bind="flashlight">Flashlight: F</button>
         <button type="button" data-bind="map">Map: M</button>
         <button type="button" data-bind="pause">Pause: Escape</button>

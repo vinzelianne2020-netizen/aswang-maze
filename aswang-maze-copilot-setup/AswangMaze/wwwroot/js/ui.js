@@ -197,14 +197,15 @@ $(function () {
     for (const button of document.querySelectorAll("[data-menu-bind]")) {
       const action = button.dataset.menuBind;
       const label = button.textContent.split(":")[0];
-      button.textContent = `${label}: ${settings.controls[action]}`;
+      const formatKey = (key) => key === " " ? "Space" : key.toUpperCase();
+      button.textContent = `${label}: ${formatKey(settings.controls[action])}`;
       button.onclick = () => {
         button.textContent = `${label}: press a key...`;
         const capture = (event) => {
           event.preventDefault();
           event.stopImmediatePropagation();
           settings.controls[action] = event.key.toLowerCase();
-          button.textContent = `${label}: ${settings.controls[action]}`;
+          button.textContent = `${label}: ${formatKey(settings.controls[action])}`;
           saveSettings(settings);
           window.removeEventListener("keydown", capture, true);
         };

@@ -7,7 +7,9 @@ export function createPlayer(level) {
     pitch: 0,
     planeX: 0,
     planeY: 0.66,
-    radius: 0.2
+    radius: 0.2,
+    jumpHeight: 0,
+    jumpVelocity: 0
   };
 }
 

@@ -59,7 +59,30 @@ export class ThreeRenderer {
     this.camera.add(this.viewModel);
     this.viewModelItem = null;
     this.viewModelItemType = null;
+    this.weaponParts = null;
     this.viewModelRecoil = 0;
+    this.cameraKick = 0;
+    this.muzzleFlashTimer = 0;
+    this.effectParticles = [];
+    this.shellCasings = [];
+    this.effectParticleGeometry = new THREE.SphereGeometry(0.025, 6, 5);
+    this.shellGeometry = new THREE.CylinderGeometry(0.018, 0.018, 0.085, 8);
+    this.shellMaterial = new THREE.MeshStandardMaterial({
+      color: "#b78338",
+      roughness: 0.34,
+      metalness: 0.82
+    });
+    this.muzzleFlash = new THREE.Mesh(
+      new THREE.SphereGeometry(0.075, 8, 6),
+      new THREE.MeshBasicMaterial({ color: "#ffb14d", transparent: true, opacity: 0.95 })
+    );
+    this.muzzleFlash.position.set(0.42, -0.3, -1.38);
+    this.muzzleFlash.scale.set(0.8, 0.8, 2.8);
+    this.muzzleFlash.visible = false;
+    this.camera.add(this.muzzleFlash);
+    this.muzzleLight = new THREE.PointLight("#ff9d47", 0, 5, 2);
+    this.muzzleLight.position.copy(this.muzzleFlash.position);
+    this.camera.add(this.muzzleLight);
     this.movementPhase = 0;
     this.movementBlend = 0;
     this.cameraBaseY = 1.6;
@@ -131,6 +154,7 @@ export class ThreeRenderer {
     }
     walls.instanceMatrix.needsUpdate = true;
     this.mazeGroup.add(walls);
+    walls.userData.surfaceType = "plaster";
     this.addBloodDecals(level, wallCells, bloodMaterials);
 
     const floor = new THREE.Mesh(
@@ -143,6 +167,7 @@ export class ThreeRenderer {
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(level.width / 2, 0, level.height / 2);
     floor.receiveShadow = true;
+    floor.userData.surfaceType = "stone";
     this.mazeGroup.add(floor);
 
     const ceiling = new THREE.Mesh(
@@ -159,6 +184,7 @@ export class ThreeRenderer {
     this.mazeGroup.add(ceiling);
 
     this.addEnvironmentalProps(props);
+    this.addDeadBodies(level, props);
     this.createExitDoor(level);
     this.addMazeLights(level);
     this.createFlickerLight();
@@ -180,6 +206,7 @@ export class ThreeRenderer {
       mesh.position.set(...position);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.userData.surfaceType = material.metalness > 0.4 ? "metal" : "wood";
       parent.add(mesh);
       return mesh;
     };
@@ -200,10 +227,13 @@ export class ThreeRenderer {
         const height = locker ? 2.05 : 1.45;
         const depth = locker ? 0.55 : 0.62;
         const bodyMaterial = locker ? materials.metal : materials.wood;
-        addBox(group, boxGeometry, bodyMaterial, [0, height / 2, 0]);
-        addBox(group, boxGeometry, materials.trim, [0, height / 2, depth / 2 + 0.018]);
+        addBox(group, boxGeometry, bodyMaterial, [0, height / 2, 0])
+          .scale.set(width, height, depth);
+        addBox(group, boxGeometry, materials.trim, [0, height / 2, depth / 2 + 0.018])
+          .scale.set(width * 0.96, height * 0.96, 0.04);
         addBox(group, boxGeometry, locker ? materials.metal : materials.rustyMetal,
-          [0, height / 2, depth / 2 + 0.034]);
+          [0, height / 2, depth / 2 + 0.034])
+          .scale.set(width * 0.92, height * 0.92, 0.025);
         const doorMaterial = locker ? materials.metal : materials.wood;
         for (const side of [-1, 1]) {
           const door = addBox(
@@ -227,6 +257,36 @@ export class ThreeRenderer {
               .scale.set(0.24, 0.018, 0.012);
           }
         }
+      } else if (prop.type === "bed") {
+        const frameMaterial = new THREE.MeshStandardMaterial({
+          color: "#372d2a",
+          roughness: 0.88,
+          metalness: 0.12
+        });
+        addBox(group, boxGeometry, frameMaterial, [0, 0.22, 0]).scale.set(0.9, 0.16, 1.35);
+        const mattress = new THREE.Mesh(
+          new THREE.BoxGeometry(0.82, 0.25, 1.27),
+          new THREE.MeshStandardMaterial({ color: "#a3978e", roughness: 1 })
+        );
+        mattress.position.y = 0.42;
+        mattress.castShadow = true;
+        mattress.receiveShadow = true;
+        group.add(mattress);
+        addBox(group, boxGeometry, frameMaterial, [0, 0.68, -0.61])
+          .scale.set(0.92, 0.9, 0.12);
+        for (const x of [-0.36, 0.36]) {
+          addBox(group, boxGeometry, frameMaterial, [x, 0.12, -0.55])
+            .scale.set(0.12, 0.24, 0.12);
+          addBox(group, boxGeometry, frameMaterial, [x, 0.12, 0.55])
+            .scale.set(0.12, 0.24, 0.12);
+        }
+        const pillow = new THREE.Mesh(
+          new THREE.BoxGeometry(0.62, 0.12, 0.32),
+          new THREE.MeshStandardMaterial({ color: "#ddd2c4", roughness: 0.96 })
+        );
+        pillow.position.set(0, 0.61, -0.38);
+        pillow.rotation.x = -0.08;
+        group.add(pillow);
       } else if (prop.type === "garbage") {
         for (let bagIndex = 0; bagIndex < 3; bagIndex++) {
           const bag = new THREE.Mesh(
@@ -288,6 +348,96 @@ export class ThreeRenderer {
     }
   }
 
+  addDeadBodies(level, props) {
+    const occupied = [
+      level.start,
+      level.exit,
+      ...level.keys,
+      ...level.spawns,
+      ...props
+    ];
+    const candidates = [];
+    for (let y = 2; y < level.height - 2; y++) {
+      for (let x = 2; x < level.width - 2; x++) {
+        if (level.map[y][x] !== 0) continue;
+        if (occupied.some((point) => Math.hypot(x + 0.5 - point.x, y + 0.5 - point.y) < 2.2)) {
+          continue;
+        }
+        candidates.push({ x, y });
+      }
+    }
+    for (let index = candidates.length - 1; index > 0; index--) {
+      const swap = Math.floor(Math.random() * (index + 1));
+      [candidates[index], candidates[swap]] = [candidates[swap], candidates[index]];
+    }
+
+    const bodyCount = Math.min(5, Math.max(2, Math.floor(level.width * level.height / 1100)));
+    const bodyGroup = new THREE.Group();
+    bodyGroup.name = "environmental-remains";
+    this.mazeGroup.add(bodyGroup);
+    for (let index = 0; index < bodyCount && index < candidates.length; index++) {
+      const cell = candidates[index];
+      const pose = index % 3 === 1 ? "slumped" : "fallen";
+      const group = new THREE.Group();
+      group.position.set(cell.x + 0.5, 0, cell.y + 0.5);
+      group.rotation.y = Math.random() * Math.PI * 2;
+      bodyGroup.add(group);
+
+      const clothes = new THREE.MeshStandardMaterial({
+        color: ["#302b2b", "#39352f", "#242a2d", "#46332d"][index % 4],
+        roughness: 0.98
+      });
+      const skin = new THREE.MeshStandardMaterial({
+        color: ["#65564c", "#746258", "#514941"][index % 3],
+        roughness: 1
+      });
+      const torso = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.16, 0.42, 3, 7),
+        clothes
+      );
+      torso.castShadow = true;
+      torso.receiveShadow = true;
+      torso.position.set(0, pose === "slumped" ? 0.52 : 0.22, 0);
+      torso.rotation.z = pose === "slumped"
+        ? 0.3 + Math.random() * 0.25
+        : Math.PI / 2 + (Math.random() - 0.5) * 0.24;
+      group.add(torso);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 9, 7), skin);
+      head.scale.set(0.88, 1.05, 0.95);
+      head.position.set(
+        pose === "slumped" ? 0.06 : 0.36,
+        pose === "slumped" ? 0.91 : 0.22,
+        0
+      );
+      head.castShadow = true;
+      group.add(head);
+
+      const limbGeometry = new THREE.CapsuleGeometry(0.055, 0.28, 2, 6);
+      for (const side of [-1, 1]) {
+        const arm = new THREE.Mesh(limbGeometry, clothes);
+        arm.position.set(
+          pose === "slumped" ? side * 0.19 : 0.04,
+          pose === "slumped" ? 0.33 : 0.15,
+          side * 0.2
+        );
+        arm.rotation.z = pose === "slumped" ? side * 0.16 : 0.58 + side * 0.3;
+        arm.castShadow = true;
+        group.add(arm);
+
+        const leg = new THREE.Mesh(limbGeometry, clothes);
+        leg.position.set(
+          pose === "slumped" ? side * 0.11 : -0.3,
+          pose === "slumped" ? 0.14 : 0.12,
+          side * 0.12
+        );
+        leg.rotation.z = pose === "slumped" ? -side * 0.08 : -0.24 + side * 0.3;
+        leg.castShadow = true;
+        group.add(leg);
+      }
+    }
+  }
+
   createExitDoor(level) {
     if (this.exitDoorGroup) this.mazeGroup.remove(this.exitDoorGroup);
     const exitX = Math.floor(level.exit.x);
@@ -296,9 +446,31 @@ export class ThreeRenderer {
       Number(level.map[exitY]?.[exitX + 1] === 0);
     const openY = Number(level.map[exitY - 1]?.[exitX] === 0) +
       Number(level.map[exitY + 1]?.[exitX] === 0);
+    const oneSidedX = openX === 1;
+    const oneSidedY = openY === 1;
+    const horizontalHall = oneSidedX && !oneSidedY
+      ? true
+      : oneSidedY && !oneSidedX
+        ? false
+        : openX >= openY;
+    const acrossX = horizontalHall ? 0 : 1;
+    const acrossY = horizontalHall ? 1 : 0;
+    let openingWidth = 1;
+    for (const direction of [-1, 1]) {
+      let step = 1;
+      while (
+        level.map[exitY + acrossY * step * direction]?.[
+          exitX + acrossX * step * direction
+        ] === 0
+      ) {
+        openingWidth++;
+        step++;
+      }
+    }
+    const doorWidth = Math.max(0.9, Math.min(5, openingWidth - 0.2));
     const door = new THREE.Group();
     door.position.set(level.exit.x, 0, level.exit.y);
-    door.rotation.y = openX >= openY ? Math.PI / 2 : 0;
+    door.rotation.y = horizontalHall ? Math.PI / 2 : 0;
     this.mazeGroup.add(door);
     this.exitDoorGroup = door;
 
@@ -329,25 +501,28 @@ export class ThreeRenderer {
       parent.add(mesh);
       return mesh;
     };
-    addBox(door, frameMaterial, [0.12, 2.55, 0.18], [-0.52, 1.27, 0]);
-    addBox(door, frameMaterial, [0.12, 2.55, 0.18], [0.52, 1.27, 0]);
-    addBox(door, frameMaterial, [1.16, 0.14, 0.2], [0, 2.55, 0]);
+    const hingeX = -doorWidth / 2;
+    addBox(door, frameMaterial, [0.12, 2.55, 0.18], [hingeX, 1.27, 0]);
+    addBox(door, frameMaterial, [0.12, 2.55, 0.18], [-hingeX, 1.27, 0]);
+    addBox(door, frameMaterial, [doorWidth + 0.24, 0.14, 0.2], [0, 2.55, 0]);
 
     const leafPivot = new THREE.Group();
-    leafPivot.position.set(-0.45, 0, 0);
+    leafPivot.position.set(hingeX + 0.06, 0, 0);
     door.add(leafPivot);
-    addBox(leafPivot, doorMaterial, [0.9, 2.35, 0.12], [0.45, 1.18, 0]);
+    const leafWidth = doorWidth - 0.12;
+    addBox(leafPivot, doorMaterial, [leafWidth, 2.35, 0.12], [leafWidth / 2, 1.18, 0]);
     for (const y of [0.42, 0.94, 1.47, 1.98]) {
-      addBox(leafPivot, frameMaterial, [0.7, 0.035, 0.03], [0.45, y, 0.078]);
+      addBox(leafPivot, frameMaterial, [leafWidth * 0.78, 0.035, 0.03],
+        [leafWidth / 2, y, 0.078]);
     }
     const knob = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), ironMaterial);
-    knob.position.set(0.78, 1.15, 0.11);
+    knob.position.set(leafWidth - 0.2, 1.15, 0.11);
     leafPivot.add(knob);
 
     this.exitLocks = [];
     for (const y of [1.55, 0.82]) {
       const lock = new THREE.Group();
-      lock.position.set(0.45, y, 0.105);
+      lock.position.set(leafWidth - 0.4, y, 0.105);
       leafPivot.add(lock);
       const body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.26, 0.08), ironMaterial);
       body.castShadow = true;
@@ -366,12 +541,12 @@ export class ThreeRenderer {
     this.exitDoorTarget = 0;
   }
 
-  syncExit(keysCollected) {
+  syncExit(keysCollected, keysRequired = 2) {
     if (!this.exitDoorLeaf) return;
     this.exitLocks.forEach((lock, index) => {
       lock.visible = index >= keysCollected;
     });
-    this.exitDoorTarget = keysCollected >= 2 ? Math.PI / 2 : 0;
+    this.exitDoorTarget = keysCollected >= keysRequired ? Math.PI / 2 : 0;
   }
 
   applySettings(settings) {
@@ -475,6 +650,60 @@ export class ThreeRenderer {
       context.moveTo(x, y);
       context.lineTo(x + (Math.random() - 0.5) * 28, y + 8 + Math.random() * 36);
       context.stroke();
+    }
+
+    for (let i = 0; i < 28; i++) {
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const radius = 12 + Math.random() * 48;
+      const stain = context.createRadialGradient(x, y, 1, x, y, radius);
+      stain.addColorStop(0, `rgba(27, 38, 30, ${0.08 + Math.random() * 0.13})`);
+      stain.addColorStop(1, "rgba(25, 34, 29, 0)");
+      context.fillStyle = stain;
+      context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+
+    for (let patch = 0; patch < 9; patch++) {
+      const centerX = Math.random() * canvas.width;
+      const centerY = Math.random() * canvas.height;
+      const mossColor = Math.random() < 0.5 ? "35, 67, 39" : "59, 72, 43";
+      const width = 12 + Math.random() * 34;
+      const height = 14 + Math.random() * 42;
+      const moss = context.createRadialGradient(
+        centerX,
+        centerY,
+        1,
+        centerX,
+        centerY,
+        Math.max(width, height)
+      );
+      moss.addColorStop(0, `rgba(${mossColor}, ${0.24 + Math.random() * 0.2})`);
+      moss.addColorStop(0.55, `rgba(${mossColor}, 0.12)`);
+      moss.addColorStop(1, `rgba(${mossColor}, 0)`);
+      context.fillStyle = moss;
+      context.save();
+      context.translate(centerX, centerY);
+      context.rotate((Math.random() - 0.5) * 0.8);
+      context.scale(width / height, 1);
+      context.fillRect(-height, -height, height * 2, height * 2);
+      context.restore();
+
+      context.fillStyle = `rgba(19, 39, 25, ${0.12 + Math.random() * 0.1})`;
+      for (let fleck = 0; fleck < 18; fleck++) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.random() * width;
+        context.beginPath();
+        context.ellipse(
+          centerX + Math.cos(angle) * radius,
+          centerY + Math.sin(angle) * radius,
+          1 + Math.random() * 3,
+          1 + Math.random() * 5,
+          angle,
+          0,
+          Math.PI * 2
+        );
+        context.fill();
+      }
     }
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -625,8 +854,8 @@ export class ThreeRenderer {
       return;
     }
 
-    this.camera.position.set(player.x, 1.6, player.y);
-    this.cameraBaseY = 1.6;
+    this.cameraBaseY = 1.6 + (player.jumpHeight || 0);
+    this.camera.position.set(player.x, this.cameraBaseY, player.y);
     const horizontalLook = Math.cos(player.pitch || 0);
     this.camera.lookAt(
       player.x + player.dirX * horizontalLook,
@@ -851,10 +1080,10 @@ export class ThreeRenderer {
 
     if (type === "gun") {
       addBox(group, polymer, [0.32, 0.14, 0.52], [0, 0.06, 0]);
-      addBox(group, metal, [0.29, 0.095, 0.35], [0, 0.145, -0.04]);
+      const slide = addBox(group, metal, [0.29, 0.095, 0.35], [0, 0.145, -0.04]);
       addCylinder(group, darkMetal, 0.045, 0.045, 0.35, [0, 0.12, -0.43], [Math.PI / 2, 0, 0]);
       addBox(group, polymer, [0.16, 0.27, 0.18], [0.015, -0.13, 0.13]);
-      addBox(group, darkMetal, [0.12, 0.04, 0.17], [0.015, -0.275, 0.13]);
+      const magazine = addBox(group, darkMetal, [0.12, 0.16, 0.17], [0.015, -0.225, 0.13]);
       addBox(group, metal, [0.075, 0.045, 0.045], [0, 0.22, -0.06]);
       const trigger = new THREE.Mesh(
         new THREE.TorusGeometry(0.075, 0.012, 6, 12, Math.PI),
@@ -866,6 +1095,12 @@ export class ThreeRenderer {
       for (const x of [-0.13, 0.13]) {
         addBox(group, darkMetal, [0.018, 0.07, 0.12], [x, 0.08, 0.03]);
       }
+      group.userData.reloadParts = {
+        slide,
+        slidePosition: slide.position.clone(),
+        magazine,
+        magazinePosition: magazine.position.clone()
+      };
     } else if (type === "flashlight") {
       const body = addCylinder(group, polymer, 0.09, 0.075, 0.58, [0, 0, 0], [Math.PI / 2, 0, 0]);
       body.rotation.z = Math.PI / 2;
@@ -927,8 +1162,7 @@ export class ThreeRenderer {
       (type === "gun" && inventory.gun > 0) ||
       (type === "map" && inventory.map > 0) ||
       (type === "flashlight" && inventory.flashlight > 0) ||
-      (type === "ammo" && inventory.ammo > 0) ||
-      (type === "battery" && inventory.battery > 0);
+      (type === "ammo" && inventory.ammo > 0);
     if (this.viewModelItemType === type && Boolean(this.viewModelItem) === available) return;
 
     if (this.viewModelItem) {
@@ -944,6 +1178,7 @@ export class ThreeRenderer {
       });
       this.viewModelItem = null;
     }
+    this.weaponParts = null;
     this.viewModelItemType = type;
     if (!available) return;
 
@@ -955,12 +1190,171 @@ export class ThreeRenderer {
     if (type === "map") item.rotation.x = -0.15;
     this.viewModel.add(item);
     this.viewModelItem = item;
+    this.weaponParts = item.userData.reloadParts || null;
   }
 
-  fireViewModel() {
+  finishReload() {
+    if (!this.weaponParts) return;
+    this.weaponParts.magazine.visible = true;
+    this.weaponParts.magazine.position.copy(this.weaponParts.magazinePosition);
+    this.weaponParts.slide.position.copy(this.weaponParts.slidePosition);
+  }
+
+  fireViewModel(impactTarget = null) {
     if (this.viewModelItemType !== "gun" || !this.viewModelItem) return;
     this.viewModelRecoil = 0.12;
+    this.cameraKick = 0.055;
+    this.muzzleFlashTimer = 0.055;
+    this.muzzleFlash.visible = true;
+    this.muzzleFlash.material.opacity = 0.8 + Math.random() * 0.2;
+    this.muzzleFlash.scale.set(
+      0.65 + Math.random() * 0.7,
+      0.65 + Math.random() * 0.7,
+      2.2 + Math.random() * 1.4
+    );
+    this.muzzleLight.intensity = 38;
     this.viewModelLight.intensity = 5;
+    this.spawnShellCasing();
+    this.spawnSmoke();
+    if (impactTarget) {
+      this.spawnBulletImpact(
+        new THREE.Vector3(impactTarget.x, impactTarget.y, impactTarget.z),
+        impactTarget.surface
+      );
+    } else {
+      this.spawnRaycastImpact();
+    }
+  }
+
+  spawnRaycastImpact() {
+    if (!this.mazeGroup) return;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+    const hit = raycaster.intersectObjects(this.mazeGroup.children, true)
+      .find((intersection) => intersection.distance > 0.4 && intersection.distance < 12);
+    if (!hit) return;
+    const surface = hit.object.userData.surfaceType ||
+      (hit.object.material?.metalness > 0.4 ? "metal" : "plaster");
+    this.spawnBulletImpact(hit.point, surface);
+  }
+
+  spawnBulletImpact(position, surface = "plaster") {
+    const colors = surface === "flesh"
+      ? ["#7d1720", "#4b1018", "#a42c2d"]
+      : surface === "metal"
+        ? ["#ffd27a", "#ff8c35", "#c5a27c"]
+        : ["#b2a898", "#766d66", "#403b3b"];
+    const particleCount = surface === "metal" ? 9 : 6;
+    for (let index = 0; index < particleCount; index++) {
+      const material = new THREE.MeshBasicMaterial({
+        color: colors[index % colors.length],
+        transparent: true,
+        opacity: 0.92
+      });
+      const particle = new THREE.Mesh(this.effectParticleGeometry, material);
+      particle.position.copy(position);
+      particle.scale.setScalar(0.45 + Math.random() * 0.8);
+      this.scene.add(particle);
+      this.effectParticles.push({
+        mesh: particle,
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 2.4,
+          0.4 + Math.random() * 2.8,
+          (Math.random() - 0.5) * 2.4
+        ),
+        life: 0.16 + Math.random() * 0.22,
+        maxLife: 0.38,
+        kind: "impact"
+      });
+    }
+  }
+
+  spawnSmoke() {
+    const origin = this.muzzleFlash.getWorldPosition(new THREE.Vector3());
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    for (let index = 0; index < 3; index++) {
+      const material = new THREE.MeshBasicMaterial({
+        color: "#494345",
+        transparent: true,
+        opacity: 0.24
+      });
+      const smoke = new THREE.Mesh(this.effectParticleGeometry, material);
+      smoke.position.copy(origin).addScaledVector(forward, index * 0.08);
+      smoke.scale.setScalar(0.75 + Math.random() * 0.65);
+      this.scene.add(smoke);
+      this.effectParticles.push({
+        mesh: smoke,
+        velocity: forward.clone().multiplyScalar(0.5 + Math.random() * 0.45)
+          .add(new THREE.Vector3((Math.random() - 0.5) * 0.22, 0.35, (Math.random() - 0.5) * 0.22)),
+        life: 0.42 + Math.random() * 0.3,
+        maxLife: 0.72,
+        kind: "smoke"
+      });
+    }
+  }
+
+  spawnShellCasing() {
+    const casing = new THREE.Mesh(this.shellGeometry, this.shellMaterial);
+    const origin = new THREE.Vector3(0.62, -0.29, -0.92);
+    this.camera.localToWorld(origin);
+    casing.position.copy(origin);
+    casing.rotation.set(Math.random() * Math.PI, 0, Math.random() * Math.PI);
+    this.scene.add(casing);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const velocity = right.multiplyScalar(1.3 + Math.random() * 0.7)
+      .addScaledVector(up, 0.5 + Math.random() * 0.5)
+      .addScaledVector(forward, 0.15);
+    this.shellCasings.push({ mesh: casing, velocity, life: 4.5 });
+  }
+
+  updateTransientEffects(dt) {
+    this.muzzleFlashTimer = Math.max(0, this.muzzleFlashTimer - dt);
+    this.muzzleFlash.visible = this.muzzleFlashTimer > 0;
+    this.muzzleLight.intensity = this.muzzleFlashTimer > 0
+      ? 38 * this.muzzleFlashTimer / 0.055
+      : 0;
+
+    for (let index = this.effectParticles.length - 1; index >= 0; index--) {
+      const particle = this.effectParticles[index];
+      particle.life -= dt;
+      if (particle.life <= 0) {
+        this.scene.remove(particle.mesh);
+        particle.mesh.material.dispose();
+        this.effectParticles.splice(index, 1);
+        continue;
+      }
+      particle.mesh.position.addScaledVector(particle.velocity, dt);
+      if (particle.kind === "smoke") {
+        particle.velocity.y += dt * 0.45;
+        particle.mesh.scale.multiplyScalar(1 + dt * 1.1);
+        particle.mesh.material.opacity = 0.24 * particle.life / particle.maxLife;
+      } else {
+        particle.velocity.y -= dt * 7;
+        particle.mesh.material.opacity = particle.life / particle.maxLife;
+      }
+    }
+
+    for (let index = this.shellCasings.length - 1; index >= 0; index--) {
+      const casing = this.shellCasings[index];
+      casing.life -= dt;
+      if (casing.life <= 0) {
+        this.scene.remove(casing.mesh);
+        this.shellCasings.splice(index, 1);
+        continue;
+      }
+      casing.velocity.y -= dt * 7.5;
+      casing.mesh.position.addScaledVector(casing.velocity, dt);
+      casing.mesh.rotation.x += dt * 12;
+      casing.mesh.rotation.z += dt * 8;
+      if (casing.mesh.position.y < 0.04) {
+        casing.mesh.position.y = 0.04;
+        casing.velocity.y = Math.abs(casing.velocity.y) * 0.24;
+        casing.velocity.x *= 0.74;
+        casing.velocity.z *= 0.74;
+      }
+    }
   }
 
   setPlayerHidden(hidden) {
@@ -1015,17 +1409,17 @@ export class ThreeRenderer {
           const walk = this.enemyModelTemplate?.animations.find(
             (clip) => clip.name === "Walk"
           );
-          const roar = this.enemyModelTemplate?.animations.find(
-            (clip) => clip.name === "Roar"
-          );
-          const clip = enemy.state === "CHASE" ? roar || walk : walk;
+          const clip = walk;
           if (clip) {
             const activeAction = this.enemyActions.get(enemy);
             if (activeAction?.getClip() !== clip) {
               mixer.stopAllAction();
               const nextAction = mixer.clipAction(clip);
+              nextAction.setEffectiveTimeScale(enemy.state === "CHASE" ? 1.75 : 1);
               nextAction.play();
               this.enemyActions.set(enemy, nextAction);
+            } else {
+              activeAction.setEffectiveTimeScale(enemy.state === "CHASE" ? 1.75 : 1);
             }
           }
         }
@@ -1035,6 +1429,7 @@ export class ThreeRenderer {
 
   update(dt, enemies, movement = {}) {
     this.elapsed += dt;
+    this.updateTransientEffects(dt);
     if (this.exitDoorLeaf) {
       this.exitDoorAngle +=
         (this.exitDoorTarget - this.exitDoorAngle) * (1 - Math.exp(-dt * 3));
@@ -1063,11 +1458,51 @@ export class ThreeRenderer {
       Math.sin(stride) * 0.018 * bobAmount,
       Math.sin(stride) * 0.045 * bobAmount
     );
+    if (movement.reloading && this.weaponParts) {
+      const progress = Math.max(0, Math.min(1, movement.reloadProgress || 0));
+      const parts = this.weaponParts;
+      if (progress < 0.2) {
+        parts.magazine.visible = true;
+        parts.magazine.position.y =
+          parts.magazinePosition.y - 0.18 * progress / 0.2;
+      } else if (progress < 0.56) {
+        parts.magazine.visible = false;
+      } else {
+        parts.magazine.visible = true;
+        parts.magazine.position.y =
+          parts.magazinePosition.y - 0.18 * (1 - (progress - 0.56) / 0.44);
+      }
+      parts.slide.position.z =
+        parts.slidePosition.z + Math.sin(progress * Math.PI) * 0.055;
+      this.viewModel.position.y -= Math.sin(progress * Math.PI) * 0.085;
+      this.viewModel.rotation.x += Math.sin(progress * Math.PI) * 0.08;
+    } else {
+      this.finishReload();
+    }
     this.camera.position.y =
       this.cameraBaseY + walkBob * 0.018 * bobAmount;
+    this.camera.position.x += (Math.random() - 0.5) * this.cameraKick * 0.025;
+    this.camera.rotateX(this.cameraKick * 0.85);
+    this.cameraKick = Math.max(0, this.cameraKick - dt * 0.28);
     this.camera.rotateZ(
       (movement.strafe || 0) * -0.018 * this.movementBlend
     );
+    if (movement.flashlightOn) {
+      const charge = Math.max(0, movement.flashlightCharge ?? 100);
+      const lowBattery = charge < 20;
+      const subtleVariation = 0.96 + Math.sin(this.elapsed * 2.4) * 0.035;
+      let output = subtleVariation;
+      if (lowBattery && !this.reducedFlashing) {
+        const pulse = 0.58 + (Math.sin(this.elapsed * 18) + 1) * 0.2;
+        output = Math.sin(this.elapsed * 6.5 + 0.7) < -0.83
+          ? 0.08
+          : pulse;
+      }
+      this.flashlight.visible = output > 0.12;
+      this.flashlight.intensity = 70 * output;
+    } else {
+      this.flashlight.visible = false;
+    }
     const targetFov = 78 + (movement.sprinting ? 2 : 0) * this.movementBlend;
     this.camera.fov += (targetFov - this.camera.fov) * (1 - Math.exp(-dt * 5));
     this.camera.updateProjectionMatrix();

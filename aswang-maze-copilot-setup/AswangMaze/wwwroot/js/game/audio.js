@@ -9,6 +9,9 @@ export class HorrorAudio {
     this.tension = 0;
     this.smoothedTension = 0;
     this.heartbeatTimer = 0;
+    this.ambientEventTimer = 10 + Math.random() * 8;
+    this.enemyCueTimer = 4;
+    this.ambienceNodes = null;
     this.masterVolume = settings.masterVolume ?? 0.8;
     this.effectsVolume = settings.effectsVolume ?? 0.8;
     this.ambienceVolume = settings.ambienceVolume ?? 0.55;
@@ -34,6 +37,7 @@ export class HorrorAudio {
       this.ambient.connect(this.master);
       this.heartbeat.connect(this.master);
       this.master.connect(this.context.destination);
+      this.createAmbience();
     }
 
     if (this.context.state === "suspended") {
@@ -69,13 +73,15 @@ export class HorrorAudio {
     }
   }
 
-  update(dt, tension) {
+  update(dt, tension, player = null, enemies = [], active = true) {
     if (!this.context || !this.unlocked) return;
 
     this.tension = Math.max(0, Math.min(1, tension));
     const smoothing = Math.min(1, dt * 2);
     this.smoothedTension +=
       (this.tension - this.smoothedTension) * smoothing;
+    this.updateAmbience();
+    if (player) this.updateListener(player);
 
     if (this.smoothedTension < 0.15) {
       this.heartbeat.gain.setTargetAtTime(
@@ -84,19 +90,243 @@ export class HorrorAudio {
         0.08
       );
       this.heartbeatTimer = 0;
-      return;
+    } else {
+      const interval =
+        1.1 + (0.35 - 1.1) * this.smoothedTension;
+      const volume =
+        0.9 * this.smoothedTension;
+
+      this.heartbeatTimer -= dt;
+      if (this.heartbeatTimer <= 0) {
+        this.playHeartbeat(volume);
+        this.heartbeatTimer = interval;
+      }
     }
 
-    const interval =
-      1.1 + (0.35 - 1.1) * this.smoothedTension;
-    const volume =
-      0.9 * this.smoothedTension;
+    if (!active || !player) return;
 
-    this.heartbeatTimer -= dt;
-    if (this.heartbeatTimer <= 0) {
-      this.playHeartbeat(volume);
-      this.heartbeatTimer = interval;
+    this.ambientEventTimer -= dt;
+    if (this.ambientEventTimer <= 0) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 9 + Math.random() * 12;
+      const sounds = ["creak", "knock", "whisper", "scrape", "screech"];
+      this.playSpatialCue(
+        player.x + Math.cos(angle) * distance,
+        player.y + Math.sin(angle) * distance,
+        sounds[Math.floor(Math.random() * sounds.length)]
+      );
+      this.ambientEventTimer = 10 + Math.random() * 17;
     }
+
+    const nearest = enemies
+      .filter((enemy) => enemy.state !== "DEAD")
+      .map((enemy) => ({
+        enemy,
+        distance: Math.hypot(enemy.x - player.x, enemy.y - player.y)
+      }))
+      .sort((a, b) => a.distance - b.distance)[0];
+    this.enemyCueTimer -= dt;
+    if (nearest && nearest.distance < 10 && this.enemyCueTimer <= 0) {
+      const cue = nearest.enemy.state === "CHASE"
+        ? Math.random() < 0.35 ? "footstep" : "breath"
+        : "growl";
+      this.playSpatialCue(nearest.enemy.x, nearest.enemy.y, cue, this.sfx);
+      this.enemyCueTimer = 5 + Math.random() * 7;
+    }
+  }
+
+  createAmbience() {
+    const now = this.context.currentTime;
+    const drone = this.context.createOscillator();
+    const droneGain = this.context.createGain();
+    const droneFilter = this.context.createBiquadFilter();
+    drone.type = "sine";
+    drone.frequency.value = 42;
+    droneFilter.type = "lowpass";
+    droneFilter.frequency.value = 95;
+    droneGain.gain.value = 0.0001;
+    drone.connect(droneFilter);
+    droneFilter.connect(droneGain);
+    droneGain.connect(this.ambient);
+    drone.start(now);
+
+    const windBuffer = this.context.createBuffer(
+      1,
+      this.context.sampleRate * 2,
+      this.context.sampleRate
+    );
+    const windSamples = windBuffer.getChannelData(0);
+    for (let index = 0; index < windSamples.length; index++) {
+      windSamples[index] = (Math.random() * 2 - 1) * 0.35;
+    }
+    const wind = this.context.createBufferSource();
+    const windFilter = this.context.createBiquadFilter();
+    const windGain = this.context.createGain();
+    wind.buffer = windBuffer;
+    wind.loop = true;
+    windFilter.type = "lowpass";
+    windFilter.frequency.value = 360;
+    windGain.gain.value = 0.0001;
+    wind.connect(windFilter);
+    windFilter.connect(windGain);
+    windGain.connect(this.ambient);
+    wind.start(now);
+    this.ambienceNodes = { droneGain, droneFilter, windGain };
+  }
+
+  updateAmbience() {
+    const now = this.context.currentTime;
+    const tension = this.smoothedTension;
+    this.ambienceNodes.droneGain.gain.setTargetAtTime(
+      0.012 + tension * 0.045,
+      now,
+      0.8
+    );
+    this.ambienceNodes.droneFilter.frequency.setTargetAtTime(
+      75 + tension * 110,
+      now,
+      0.6
+    );
+    this.ambienceNodes.windGain.gain.setTargetAtTime(
+      0.018 + tension * 0.025,
+      now,
+      1
+    );
+  }
+
+  updateListener(player) {
+    const listener = this.context.listener;
+    const now = this.context.currentTime;
+    if (listener.positionX) {
+      listener.positionX.setTargetAtTime(player.x, now, 0.05);
+      listener.positionY.setTargetAtTime(1.6, now, 0.05);
+      listener.positionZ.setTargetAtTime(player.y, now, 0.05);
+      listener.forwardX.setTargetAtTime(player.dirX, now, 0.05);
+      listener.forwardY.setTargetAtTime(0, now, 0.05);
+      listener.forwardZ.setTargetAtTime(player.dirY, now, 0.05);
+      listener.upX.setTargetAtTime(0, now, 0.05);
+      listener.upY.setTargetAtTime(1, now, 0.05);
+      listener.upZ.setTargetAtTime(0, now, 0.05);
+    } else {
+      listener.setPosition(player.x, 1.6, player.y);
+      listener.setOrientation(player.dirX, 0, player.dirY, 0, 1, 0);
+    }
+  }
+
+  playSpatialCue(x, z, kind, output = this.ambient) {
+    if (!this.context || !this.unlocked) return;
+    const cues = {
+      creak: { frequency: 185, duration: 0.75, volume: 0.11, type: "sawtooth" },
+      knock: { frequency: 92, duration: 0.28, volume: 0.18, type: "triangle" },
+      whisper: { frequency: 330, duration: 0.85, volume: 0.12, type: "sawtooth" },
+      scrape: { frequency: 145, duration: 0.62, volume: 0.12, type: "square" },
+      breath: { frequency: 115, duration: 0.52, volume: 0.15, type: "triangle" },
+      growl: { frequency: 72, duration: 0.72, volume: 0.2, type: "sawtooth" },
+      scream: { frequency: 260, duration: 0.8, volume: 0.3, type: "sawtooth" },
+      screech: { frequency: 740, duration: 0.46, volume: 0.24, type: "sawtooth" },
+      footstep: { frequency: 64, duration: 0.22, volume: 0.14, type: "triangle" }
+    };
+    const cue = cues[kind];
+    if (!cue) return;
+    const now = this.context.currentTime;
+    const panner = this.context.createPanner();
+    panner.panningModel = "HRTF";
+    panner.distanceModel = "inverse";
+    panner.refDistance = 1;
+    panner.maxDistance = 30;
+    panner.rolloffFactor = 1.35;
+    panner.setPosition(x, 1.2, z);
+
+    const oscillator = this.context.createOscillator();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    oscillator.type = cue.type;
+    const startFrequency = cue.frequency * (0.88 + Math.random() * 0.24);
+    oscillator.frequency.setValueAtTime(startFrequency, now);
+    oscillator.frequency.exponentialRampToValueAtTime(
+      Math.max(25, startFrequency * (kind === "scream" ? 1.7 : 0.62)),
+      now + cue.duration
+    );
+    filter.type = "lowpass";
+    filter.frequency.value = kind === "whisper" ? 950 : 1400;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(cue.volume, now + 0.045);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + cue.duration);
+    oscillator.connect(filter);
+    filter.connect(gain);
+    gain.connect(panner);
+    panner.connect(output);
+    oscillator.start(now);
+    oscillator.stop(now + cue.duration + 0.02);
+
+    const noiseDuration = Math.min(0.3, cue.duration);
+    const noiseBuffer = this.context.createBuffer(
+      1,
+      Math.floor(this.context.sampleRate * noiseDuration),
+      this.context.sampleRate
+    );
+    const samples = noiseBuffer.getChannelData(0);
+    for (let index = 0; index < samples.length; index++) {
+      samples[index] = (Math.random() * 2 - 1) * (1 - index / samples.length);
+    }
+    const noise = this.context.createBufferSource();
+    const noiseGain = this.context.createGain();
+    noise.buffer = noiseBuffer;
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.exponentialRampToValueAtTime(cue.volume * 0.3, now + 0.03);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + noiseDuration);
+    noise.connect(noiseGain);
+    noiseGain.connect(panner);
+    noise.start(now);
+  }
+
+  playEnemyCue(x, z, kind) {
+    this.playSpatialCue(x, z, kind, this.sfx);
+  }
+
+  playGunshot() {
+    if (!this.context || !this.unlocked) return;
+    const now = this.context.currentTime;
+    const duration = 0.16;
+    const buffer = this.context.createBuffer(
+      1,
+      Math.floor(this.context.sampleRate * duration),
+      this.context.sampleRate
+    );
+    const samples = buffer.getChannelData(0);
+    for (let index = 0; index < samples.length; index++) {
+      const envelope = Math.exp(-index / (samples.length * 0.17));
+      samples[index] = (Math.random() * 2 - 1) * envelope;
+    }
+    const noise = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    noise.buffer = buffer;
+    filter.type = "lowpass";
+    filter.frequency.value = 2100;
+    gain.gain.setValueAtTime(0.32, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfx);
+    noise.start(now);
+    this.playTone(84, 0.11, 0.42);
+  }
+
+  playReload() {
+    if (!this.context || !this.unlocked) return;
+    this.playTone(720, 0.055, 0.16);
+    window.setTimeout(() => this.playTone(410, 0.09, 0.22), 420);
+    window.setTimeout(() => this.playTone(890, 0.065, 0.18), 1180);
+  }
+
+  playBatterySwap() {
+    this.playTone(540, 0.08, 0.18);
+    window.setTimeout(() => this.playTone(760, 0.12, 0.22), 120);
+  }
+
+  playFlashlightPowerDown() {
+    this.playTone(190, 0.18, 0.16);
   }
 
   playHeartbeat(volume) {

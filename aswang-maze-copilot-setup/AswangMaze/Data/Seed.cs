@@ -36,7 +36,7 @@ public static class Seed
         "101111010111101\n" +
         "100000000100001\n" +
         "101111111101101\n" +
-        "100020000003001\n" +
+        "100020000000031\n" +
         "111111111111111";
 
     public static async Task RunAsync(GameDb db)
@@ -120,7 +120,7 @@ public static class Seed
         if (baseRows.Length != 15 || baseRows.Any(row => row.Length != 15))
             throw new InvalidOperationException("Level 1 source map must be exactly 15x15.");
 
-        var rows = ExpandMap(BaseMapData, scale: 3);
+        var rows = ExpandMap(BaseMapData, scale: 5);
         var height = rows.Length;
         var width = rows[0].Length;
 
@@ -200,8 +200,13 @@ public static class Seed
                     for (var offset = 0; offset < scale; offset++)
                         expandedRow[x * scale + offset] = expandedTile;
 
-                    if (rowOffset == 0 && tile != '0' && tile != '1')
-                        expandedRow[x * scale] = tile;
+                    if (tile != '0' && tile != '1')
+                    {
+                        var markerRow = tile == '3' ? scale / 2 : 0;
+                        var markerColumn = tile == '3' ? scale - 1 : 0;
+                        if (rowOffset == markerRow)
+                            expandedRow[x * scale + markerColumn] = tile;
+                    }
                 }
 
                 expandedRows[y * scale + rowOffset] = new string(expandedRow);

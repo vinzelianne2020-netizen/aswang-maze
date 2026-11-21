@@ -154,7 +154,7 @@ export class Aswang {
     const speedMultiplier =
       this.state === EnemyState.PATROL ? 0.6 :
       this.state === EnemyState.INVESTIGATE ? 1.0 :
-      this.state === EnemyState.CHASE ? 1.15 :
+      this.state === EnemyState.CHASE ? 1.55 :
       0.8;
 
     const speed = speedMultiplier * this.baseSpeed;
